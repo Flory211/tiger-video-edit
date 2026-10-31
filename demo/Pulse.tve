@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "name": "Pulse — demo",
+  "audio": "pulse.wav",
+  "durationUs": 10000000,
+  "startUs": 0,
+  "endUs": 10000000,
+  "portrait": false,
+  "images": [
+    {
+      "path": "frame1.png",
+      "scale": 1,
+      "x": 0,
+      "y": 0,
+      "cover": true
+    },
+    {
+      "path": "frame2.png",
+      "scale": 1,
+      "x": 0,
+      "y": 0,
+      "cover": true
+    },
+    {
+      "path": "frame3.png",
+      "scale": 1,
+      "x": 0,
+      "y": 0,
+      "cover": true
+    }
+  ],
+  "markers": [
+    {
+      "id": "demo-0",
+      "timeUs": 500000
+    },
+    {
+      "id": "demo-1",
+      "timeUs": 1000000
+    },
+    {
+      "id": "demo-2",
+      "timeUs": 1500000
+    },
+    {
+      "id": "demo-3",
+      "timeUs": 2000000
+    },
+    {
+      "id": "demo-4",
+      "timeUs": 2500000
+    },
+    {
+      "id": "demo-5",
+      "timeUs": 3000000
+    },
+    {
+      "id": "demo-6",
+      "timeUs": 4000000
+    },
+    {
+      "id": "demo-7",
+      "timeUs": 5000000
+    },
+    {
+      "id": "demo-8",
+      "timeUs": 6000000
+    },
+    {
+      "id": "demo-9",
+      "timeUs": 7000000
+    },
+    {
+      "id": "demo-10",
+      "timeUs": 8000000
+    },
+    {
+      "id": "demo-11",
+      "timeUs": 9000000
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "version": 2,
+  "name": "Tiger 2 — effects & motion",
+  "audio": "pulse.wav",
+  "durationUs": 10000000,
+  "startUs": 0,
+  "endUs": 10000000,
+  "portrait": false,
+  "images": [
+    {
+      "scale": 1,
+      "x": 0,
+      "y": 0,
+      "cover": true,
+      "effectDurationUs": 450000,
+      "sourceStartUs": 0,
+      "durationUs": 0,
+      "path": "frame1.png",
+      "effects": {
+        "zoom": 0.45,
+        "flash": 0.3
+      }
+    },
+    {
+      "scale": 1,
+      "x": 0,
+      "y": 0,
+      "cover": true,
+      "effectDurationUs": 450000,
+      "sourceStartUs": 0,
+      "durationUs": 2000000,
+      "path": "motion.mp4",
+      "effects": {
+        "rgb": 0.4,
+        "glitch": 0.25
+      }
+    },
+    {
+      "scale": 1,
+      "x": 0,
+      "y": 0,
+      "cover": true,
+      "effectDurationUs": 450000,
+      "sourceStartUs": 0,
+      "durationUs": 990000,
+      "path": "motion.gif",
+      "effects": {
+        "shake": 0.25,
+        "glow": 0.4
+      }
+    }
+  ],
+  "markers": [
+    {
+      "id": "demo-0",
+      "timeUs": 500000
+    },
+    {
+      "id": "demo-1",
+      "timeUs": 1000000
+    },
+    {
+      "id": "demo-2",
+      "timeUs": 1500000
+    },
+    {
+      "id": "demo-3",
+      "timeUs": 2000000
+    },
+    {
+      "id": "demo-4",
+      "timeUs": 2500000
+    },
+    {
+      "id": "demo-5",
+      "timeUs": 3000000
+    },
+    {
+      "id": "demo-6",
+      "timeUs": 4000000
+    },
+    {
+      "id": "demo-7",
+      "timeUs": 5000000
+    },
+    {
+      "id": "demo-8",
+      "timeUs": 6000000
+    },
+    {
+      "id": "demo-9",
+      "timeUs": 7000000
+    },
+    {
+      "id": "demo-10",
+      "timeUs": 8000000
+    },
+    {
+      "id": "demo-11",
+      "timeUs": 9000000
+    }
+  ],
+  "captions": [
+    {
+      "id": "title",
+      "text": "TIGER VIDEO EDIT 2",
+      "startUs": 0,
+      "endUs": 3000000,
+      "x": 0.5,
+      "y": 0.78,
+      "fontSize": 90,
+      "color": 4291228522
+    },
+    {
+      "id": "offline",
+      "text": "Effects • Video • GIF • Captions",
+      "startUs": 3000000,
+      "endUs": 7000000,
+      "x": 0.5,
+      "y": 0.85,
+      "fontSize": 56,
+      "color": 4294967295
+    }
+  ]
+}
