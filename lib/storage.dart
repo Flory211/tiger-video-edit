@@ -75,12 +75,7 @@ class ProjectStore {
 
   static Future<List<String>> missing(Project p) async {
     final result = <String>[];
-    for (final path in {
-      if (p.audio != null) p.audio!,
-      ...p.images.map((e) => e.path),
-      ...p.audioClips.map((c) => c.path),
-      ...p.visualClips.map((c) => c.media.path),
-    }) {
+    for (final path in p.mediaReferences) {
       if (!await File(path).exists()) result.add(path);
     }
     return result;

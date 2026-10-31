@@ -121,9 +121,7 @@ Future<String> prepareAudioMix(
       check();
       final clip = clips[index];
       clip.validate();
-      final gain = clip.group == 'music'
-          ? project.musicVolume
-          : project.soundVolume;
+      final gain = clip.groupGain(project.musicVolume, project.soundVolume);
       if (!gain.isFinite || gain < 0 || gain > 2) {
         throw const FormatException('Некорректная громкость группы');
       }

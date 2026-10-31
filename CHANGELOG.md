@@ -7,7 +7,7 @@
 - Added responsive home/projects/music/sounds/templates/settings, group editing, independent visual/audio tracks, audio fades/mixing, six Auto Edit profiles and safe template CRUD.
 - Added verified update downloads with release/error caching, panel persistence, themes/accessibility, dirty-close guards, and 24/30/60 FPS at 480p/720p/1080p.
 - Added independent Windows/Android CI, secret/integrity checks, protected release gates and production-signing guards. Android build number is 3004 to remain above legacy split-APK versionCode 2003.
-- Final app checks: 119 root tests passed; analyzer clean. Real Windows native composition/audio/preview-parity and cancellation tests passed; production/device/publication gates remain open.
+- Final app checks: 121 root tests passed; analyzer clean. Independent review fixes share music/SFX/voice gain rules between preview/export, restore source paths for every track, and prevent rapid-action ID collisions. Real Windows native composition/audio/preview-parity and cancellation tests passed; production/device/publication gates remain open.
 - No 3.0 release has been published. Read DEVELOPMENT_STATUS.md for tested behavior and remaining gates.
 
 ## 2.0.0

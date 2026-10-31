@@ -2,6 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tiger_video_edit/audio_clip.dart';
 
 void main() {
+  test('music SFX and voice share explicit project group gain rules', () {
+    const clip = AudioClip(id: 'x', path: 'tone.wav', durationUs: 1000000);
+    expect(clip.copy(group: 'music').groupGain(0, .7), 0);
+    expect(clip.copy(group: 'sfx').groupGain(.4, .7), .7);
+    expect(clip.copy(group: 'voice').groupGain(.4, .7), 1);
+  });
   test('source-time audio envelope and half-open bounds', () {
     const clip = AudioClip(
       id: 'a',

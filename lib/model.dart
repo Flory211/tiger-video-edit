@@ -262,6 +262,12 @@ class VisualClip {
 }
 
 class Project {
+  Set<String> get mediaReferences => {
+    ?audio,
+    ...images.map((s) => s.path),
+    ...audioClips.map((c) => c.path),
+    ...visualClips.map((c) => c.media.path),
+  };
   final String name;
   final String? audio;
   final int durationUs, startUs, endUs;

@@ -21,6 +21,11 @@ class AudioClip {
   });
 
   int get endUs => startUs + durationUs;
+  double groupGain(double musicVolume, double soundVolume) => switch (group) {
+    'music' => musicVolume,
+    'sfx' => soundVolume,
+    _ => 1.0,
+  };
   double gainAt(int sourceUs) {
     if (!enabled || sourceUs < startUs || sourceUs >= endUs) return 0;
     final local = sourceUs - startUs;

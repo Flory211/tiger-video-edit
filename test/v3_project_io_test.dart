@@ -8,6 +8,58 @@ import 'package:tiger_video_edit/storage.dart';
 import 'editor_test.dart' show DeviceAudio;
 
 void main() {
+  test(
+    'recovery replaces every additional audio and visual reference',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('tve_v3_relink_');
+      final e = Editor(
+        LocalLibrary(dir),
+        DeviceAudio(),
+        probeFactory: () => DeviceAudio(),
+      );
+      try {
+        final missingAudio = '${dir.path}/moved.wav',
+            missingImage = '${dir.path}/moved.png';
+        e.change(
+          Project(
+            audioClips: [
+              AudioClip(id: 'a', path: missingAudio, durationUs: 1000000),
+            ],
+            visualClips: [
+              VisualClip(
+                id: 'v',
+                media: Still(path: missingImage),
+                startUs: 0,
+                durationUs: 1000000,
+              ),
+            ],
+          ),
+        );
+        expect(
+          e.project.mediaReferences,
+          containsAll([missingAudio, missingImage]),
+        );
+        await e.relink(
+          missingAudio,
+          '${Directory.current.path}/demo/pulse.wav',
+        );
+        await e.relink(
+          missingImage,
+          '${Directory.current.path}/demo/frame1.png',
+        );
+        expect(await ProjectStore.missing(e.project), isEmpty);
+        expect(e.project.audioClips.single.id, 'a');
+        expect(e.project.visualClips.single.id, 'v');
+        expect(
+          e.project.audioClips.single.path.replaceAll('\\', '/'),
+          startsWith('${dir.path}/media'.replaceAll('\\', '/')),
+        );
+      } finally {
+        e.dispose();
+        await dir.delete(recursive: true);
+      }
+    },
+  );
   test('additional music is an editable independent track rather than replacing the main song', () async {
     final dir = await Directory.systemTemp.createTemp('tve_v3_music_layer_');
     final e = Editor(LocalLibrary(dir), DeviceAudio());

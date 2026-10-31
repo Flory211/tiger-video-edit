@@ -471,10 +471,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> relink() async {
-    for (final path in {
-      if (e.project.audio != null) e.project.audio!,
-      ...e.project.images.map((s) => s.path),
-    }) {
+    for (final path in e.project.mediaReferences) {
       if (!mounted) return;
       final replace = await showDialog<bool>(
         context: context,

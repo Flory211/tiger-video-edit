@@ -22,6 +22,7 @@ BeatAnalysis _analyzeEnvelope((List<double>, int, double) input) =>
 class Editor extends ChangeNotifier {
   final LocalLibrary library;
   final AudioEngine audio;
+  final AudioEngine Function() _probeFactory;
   final VideoExporter exporter = VideoExporter();
   ProjectHistory history = ProjectHistory(Project());
   Project get project => history.current;
@@ -187,7 +188,11 @@ class Editor extends ChangeNotifier {
   bool _polling = false, _disposed = false;
   Future<void>? _saveInFlight;
   int _generation = 0, _revision = 0;
-  Editor(this.library, this.audio) {
+  int _idSequence = 0;
+  String _stamp() =>
+      '${DateTime.now().microsecondsSinceEpoch}_${_idSequence++}';
+  Editor(this.library, this.audio, {AudioEngine Function()? probeFactory})
+    : _probeFactory = probeFactory ?? AudioEngine.new {
     _ticker = Timer.periodic(const Duration(milliseconds: 16), (_) => _poll());
     audio.player.stream.error.listen((message) {
       if (!_disposed) {
@@ -462,7 +467,7 @@ class Editor extends ChangeNotifier {
   void addMarker(int timeUs) {
     if (project.audio == null) return;
     final marker = Marker(
-      id: '${DateTime.now().microsecondsSinceEpoch}_${project.markers.length}',
+      id: 'marker_${_stamp()}',
       timeUs: timeUs.clamp(project.startUs, project.endUs),
     );
     selectedMarker = marker.id;
@@ -751,31 +756,85 @@ class Editor extends ChangeNotifier {
   }
 
   Future<void> relink(String old, String replacement) async {
-    if (project.audio == old) {
-      beatAnalysis = null;
-      final duration = await _openAudio(replacement);
-      if (duration < project.endUs) {
+    if (busy || exporting) {
+      throw StateError('Дождитесь завершения текущей операции');
+    }
+    if (!project.mediaReferences.contains(old)) {
+      throw const FormatException('Источник отсутствует в проекте');
+    }
+    await stop();
+    busy = true;
+    notifyListeners();
+    String? stable;
+    var committed = false;
+    try {
+      stable = await library.importFile(replacement);
+      final main = project.audio == old,
+          hasAudio = main || project.audioClips.any((c) => c.path == old);
+      int? audioDuration;
+      if (hasAudio) {
+        final probe = _probeFactory();
+        try {
+          audioDuration = await probe.open(stable);
+        } finally {
+          await probe.player.dispose();
+        }
+      }
+      if (main && audioDuration! < project.endUs) {
         throw const FormatException('Новая музыка короче выбранного отрывка');
       }
-      change(project.copy(audio: replacement, durationUs: duration));
-      peaks = await waveform(replacement, duration);
-      await seek(project.startUs);
-    } else {
-      final info = await inspectMedia(replacement);
+      if (project.audioClips.any(
+        (c) => c.path == old && c.sourceStartUs + c.durationUs > audioDuration!,
+      )) {
+        throw const FormatException(
+          'Новый файл короче выбранного аудиофрагмента',
+        );
+      }
+      final hasVisual =
+          project.images.any((s) => s.path == old) ||
+          project.visualClips.any((c) => c.media.path == old);
+      final info = hasVisual ? await inspectMedia(stable) : null;
+      Still replace(Still s) => s.path != old
+          ? s
+          : s.copy(
+              path: stable!,
+              durationUs: info!.durationUs,
+              sourceStartUs:
+                  info.durationUs > 0 && s.sourceStartUs >= info.durationUs
+                  ? 0
+                  : s.sourceStartUs,
+            );
       change(
         project.copy(
-          images: [
-            for (final s in project.images)
-              s.path == old
-                  ? s.copy(
-                      path: replacement,
-                      durationUs: info.durationUs,
-                      sourceStartUs: 0,
-                    )
-                  : s,
+          audio: main ? stable : null,
+          durationUs: main ? audioDuration : null,
+          images: project.images.map(replace).toList(),
+          visualClips: [
+            for (final c in project.visualClips)
+              c.copy(media: replace(c.media)),
+          ],
+          audioClips: [
+            for (final c in project.audioClips)
+              c.path == old ? c.copy(path: stable) : c,
           ],
         ),
       );
+      committed = true;
+      if (main) {
+        beatAnalysis = null;
+        await _openAudio(stable);
+        peaks = await waveform(stable, audioDuration!);
+        await seek(project.startUs);
+      }
+      error = (await ProjectStore.missing(project)).isEmpty
+          ? null
+          : 'Есть другие недоступные исходники';
+    } finally {
+      if (!committed && stable != null && await File(stable).exists()) {
+        await File(stable).delete();
+      }
+      busy = false;
+      notifyListeners();
     }
   }
 
@@ -881,8 +940,7 @@ class Editor extends ChangeNotifier {
       ? {selectedImage}
       : Set.of(selectedImages);
   void applyEffectRecipe(EffectRecipe recipe, {bool all = false}) {
-    final targets = _targets(all),
-        stamp = DateTime.now().microsecondsSinceEpoch;
+    final targets = _targets(all), stamp = _stamp();
     change(
       project.copy(
         images: [
@@ -925,8 +983,7 @@ class Editor extends ChangeNotifier {
 
   void pasteEffects({bool all = false}) {
     if (!_hasEffectClipboard) return;
-    final targets = _targets(all),
-        stamp = DateTime.now().microsecondsSinceEpoch;
+    final targets = _targets(all), stamp = _stamp();
     change(
       project.copy(
         images: [
@@ -963,7 +1020,7 @@ class Editor extends ChangeNotifier {
           project.endUs - 1,
         ),
         end = (endUs ?? project.endUs).clamp(start + 1, project.endUs);
-    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final stamp = _stamp();
     final continuous =
         mode == GlobalEffectMode.always || mode == GlobalEffectMode.range;
     final layer = GlobalAdjustmentLayer(
@@ -1015,7 +1072,7 @@ class Editor extends ChangeNotifier {
     if (project.audioClips.length + times.length > 1024) {
       throw StateError('В проекте допустимо до 1024 аудиоклипов');
     }
-    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final stamp = _stamp();
     change(
       project.copy(
         audioClips: [
@@ -1063,7 +1120,7 @@ class Editor extends ChangeNotifier {
     AudioEngine? probe;
     try {
       final path = await library.importFile(picked.path);
-      probe = AudioEngine();
+      probe = _probeFactory();
       final duration = await probe.open(path);
       addAudioLayer(path, duration);
     } finally {
@@ -1090,7 +1147,7 @@ class Editor extends ChangeNotifier {
         audioClips: [
           ...project.audioClips,
           AudioClip(
-            id: 'audio_${DateTime.now().microsecondsSinceEpoch}',
+            id: 'audio_${_stamp()}',
             path: path,
             startUs: start,
             durationUs: durationUs.clamp(1, project.endUs - start),
@@ -1119,7 +1176,7 @@ class Editor extends ChangeNotifier {
           audioClips: [
             ...project.audioClips,
             clip.copy(
-              id: 'copy_${DateTime.now().microsecondsSinceEpoch}',
+              id: 'copy_${_stamp()}',
               startUs: (clip.startUs + clip.durationUs).clamp(
                 project.startUs,
                 (project.endUs - clip.durationUs).clamp(
@@ -1168,7 +1225,7 @@ class Editor extends ChangeNotifier {
         visualClips: [
           ...project.visualClips,
           VisualClip(
-            id: 'visual_${DateTime.now().microsecondsSinceEpoch}',
+            id: 'visual_${_stamp()}',
             media: project.images[index].copy(
               scale: .4,
               cover: false,
@@ -1231,7 +1288,7 @@ class Editor extends ChangeNotifier {
       }
       await p.setVolume(
         c.gainAt(positionUs) *
-            (c.group == 'sfx' ? project.soundVolume : 1) *
+            c.groupGain(project.musicVolume, project.soundVolume) *
             settings.previewVolume *
             100,
       );
@@ -1279,7 +1336,7 @@ class Editor extends ChangeNotifier {
       markers.add(Marker(id: 'auto_${template.id}_$i', timeUs: beats[i]));
     }
     // Silent material retains the current manual cuts, never an invented beat grid.
-    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final stamp = _stamp();
     change(
       project.copy(
         portrait: template.portrait,
