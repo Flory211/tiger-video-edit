@@ -34,14 +34,18 @@
 ## Tasks and ownership
 
 - [x] 1. Audit existing source/docs/toolchain; baseline tests/analyzer; safe initial Git snapshot.
-- [ ] 2. Build automation: .github/workflows/windows.yml, android.yml, release.yml; tools/build-windows.ps1, bootstrap/verification/signing scripts; retain explicit release gate and unsigned/test distinction.
-- [ ] 3. Global effects and schema: lib/model.dart, lib/compositor.dart, new effect/animation modules and tests. Preserve old maps; add ordered instances, bulk/global distinctions, time modes and curve/keyframe evaluation.
-- [ ] 4. Services: version/release/update checks with caching/checksums, offline local music catalog and lawful provider contract, settings persistence and generated original sounds; primary-source Jamendo research.
-- [ ] 5. Controller integration: selection, bulk copy/paste, global effects, templates/Auto Edit profiles, audio clip editing and source relinking/history.
-- [ ] 6. UI: new responsive home/projects/music/templates/settings, accessible animations, effect library/curve controls and timeline tracks, keyboard/touch commands, dirty-close guard.
-- [ ] 7. Shared rendering: wire all new composition effects/animation/layers to preview and exporter; mix SFX/audio tracks on both platforms and verify actual MP4.
-- [ ] 8. Regression and native tests; local Windows/Android builds; verify package payload and signing identity. No Android-device claim without actual device.
-- [ ] 9. README/CONTRIBUTING/CHANGELOG/status/release notes and publication review with secret/history/dependency checks.
-- [ ] 10. Present concrete publication report for confirmation only after completing all independent local work. GitHub execution/online-provider approval/production signing/device acceptance remain external gates when unavailable.
+- [x] 2. Build automation: .github/workflows/windows.yml, android.yml, release.yml; tools/build-windows.ps1, bootstrap/verification/signing scripts; retain explicit release gate and unsigned/test distinction.
+- [x] 3. Global effects and schema: lib/model.dart, lib/compositor.dart, new effect/animation modules and tests. Preserve old maps; add ordered instances, bulk/global distinctions, time modes and curve/keyframe evaluation.
+- [x] 4. Services: version/release/update checks with caching/checksums, offline local music catalog and lawful provider contract, settings persistence and generated original sounds; primary-source Jamendo research.
+- [x] 5. Controller integration: selection, bulk copy/paste, global effects, templates/Auto Edit profiles, audio clip editing and source relinking/history.
+- [x] 6. UI: new responsive home/projects/music/templates/settings, accessible animations, effect library/curve controls and timeline tracks, keyboard/touch commands, dirty-close guard.
+- [x] 7. Shared rendering: wire all new composition effects/animation/layers to preview and exporter; mix SFX/audio tracks on both platforms and verify actual MP4.
+- [x] 8. Regression and native tests; local Windows/Android builds; verify package payload and signing identity. No Android-device claim without actual device.
+- [x] 9. README/CONTRIBUTING/CHANGELOG/status/release notes and publication review with secret/history/dependency checks.
+- [x] 10. Present concrete publication report for confirmation only after completing all independent local work. GitHub execution/online-provider approval/production signing/device acceptance remain external gates when unavailable.
 
 Each task adds behavior-focused tests first, runs relevant checks, updates status/changelog and makes a scoped commit after integration.
+
+## Final local checkpoint — 2026-11-01
+
+Tasks 2–9 mark implementation and available local checks, not external production acceptance. Source binaries are frozen at 7d22cb4; 121 root tests and clean analysis passed. Native Windows composition and final packages were rebuilt. See DEVELOPMENT_STATUS.md and V3_COVERAGE.md for the exact limits. Task 10 is presented to the owner after final documentation/scans; public upload remains pending approval. No GitHub runner, physical Android, production signing or activated online-provider success is claimed.

@@ -9,6 +9,7 @@
 - Added independent Windows/Android CI, secret/integrity checks, protected release gates and production-signing guards. Android build number is 3004 to remain above legacy split-APK versionCode 2003.
 - Final app checks: 121 root tests passed; analyzer clean. Independent review fixes share music/SFX/voice gain rules between preview/export, restore source paths for every track, and prevent rapid-action ID collisions. Real Windows native composition/audio/preview-parity and cancellation tests passed; production/device/publication gates remain open.
 - No 3.0 release has been published. Read DEVELOPMENT_STATUS.md for tested behavior and remaining gates.
+- Final local Windows Setup and ARM64 TEST-debug APK built as 3.0.0+3004. Five native Windows integration checks passed, including late cancellation and isolated production bootstrap. Package integrity/signing details are recorded separately; production signing and device acceptance remain pending.
 
 ## 2.0.0
 

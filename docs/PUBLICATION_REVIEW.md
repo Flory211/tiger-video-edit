@@ -1,5 +1,15 @@
 # Publication review — 2026-10-31
 
+## Final local candidate — 2026-11-01
+
+Application binaries are built from commit `7d22cb4` on `feature/tiger-3.0`, preserving baseline `6f1e510`. Final documentation/notices are committed separately. Fresh Windows Release/Setup and ARM64 debug APK builds succeeded; the obsolete pre-v3 packaging smoke described below is historical evidence only. Final v3 installation/clean-machine acceptance is still pending. Exact current artifacts are recorded in local ignored `dist/V3_ARTIFACTS.json` and `dist/SHA256SUMS`.
+
+121 root tests, clean analysis, 2 Python helper tests and 5 native Windows integration tests passed. Three workflow YAML files parse with the existing SDK YAML parser. Native tests use isolated temporary libraries; the installed application and user projects were not replaced. APK ZIP/ABI/version/certificate and bundled Windows FFmpeg/FFprobe checks passed. The TEST-debug APK has versionCode 3004, above legacy 2003, and the same local test certificate; this is not a production-signing or device-upgrade claim.
+
+Read-only connected GitHub profile identified `GushinetsN`; no matching repository was found during preparation. Intended source destination: `GushinetsN/tiger-video-edit`. Portable official GitHub CLI is prepared but unauthenticated. No remote, login, source push or public release was created. The upload would include reachable source history from the preserved baseline through final documentation, synthetic demo fixtures and docs/screenshots; ignored `.tools`, builds/dist, tutorials, imported media and credentials are excluded. Existing GPLv3 is preserved pending owner confirmation; exact native corresponding-source preparation remains a binary-release gate.
+
+Final staged and all-reachable-history secret scans exited 0 with no findings. `git diff --cached --check` passed; no tracked APK/EXE/MP4/private-key files or remote are present. The final integrity manifest create/verify passed. Windows Setup: 112,443,681 bytes, SHA256 `10a809d12194c5770e7b7ed03c88eff7f399d568ac5f407ad02e6b25b2fe8ac5`. Android TEST-debug: 93,527,489 bytes, SHA256 `a07cec4c1a51c65ef900c79b2631e1c6c59687007aac3a6233b81f9334a58cfc`. These checks support local review; they do not authorize publication or eliminate every possible secret/license issue.
+
 Status: source and binaries have not been uploaded by this implementation. Existing GPL-3.0 LICENSE is preserved; this does not replace owner confirmation of the intended public license. No public repository or release is claimed ready solely from local checks.
 
 Before the owner confirms first publication:

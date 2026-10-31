@@ -1,5 +1,7 @@
 # Native Windows v3 export verification — 2026-10-31
 
+Final rerun on 2026-11-01 at application commit `7d22cb4` passed with the same measured frame/audio values. It additionally cancels at 98% progress and verifies that the existing destination survives unchanged; the earlier cancellation case remains. Log: `.tools/v3-final-v3_export_test.dart.log`. No installed user library is accessed.
+
 The real Windows integration test passed:
 
 ```powershell
