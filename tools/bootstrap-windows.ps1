@@ -8,9 +8,10 @@ if((Get-FileHash -LiteralPath $taskArchive -Algorithm SHA256).Hash.ToLower() -ne
 # Extract with 7-Zip, or WinRAR if installed. Windows tar lacks the required LZMA codec.
 $taskSevenZip='C:\Program Files\7-Zip\7z.exe'
 $taskTarget=Join-Path $taskRoot 'third_party\mpv'
-if(Test-Path -LiteralPath $taskSevenZip){& $taskSevenZip x -y "-o$taskTarget" $taskArchive}
+if(Test-Path -LiteralPath $taskSevenZip){& $taskSevenZip x -y "-o$taskTarget" $taskArchive; if($LASTEXITCODE){throw 'libmpv extraction failed'}}
 elseif(Test-Path -LiteralPath 'C:\Program Files\WinRAR\WinRAR.exe') {
-  Start-Process -FilePath 'C:\Program Files\WinRAR\WinRAR.exe' -ArgumentList @('x','-ibck','-y',"`"$taskArchive`"","`"$taskTarget\`"") -WindowStyle Hidden -Wait
+  $taskExtract=Start-Process -FilePath 'C:\Program Files\WinRAR\WinRAR.exe' -ArgumentList @('x','-ibck','-y',"`"$taskArchive`"","`"$taskTarget\`"") -WindowStyle Hidden -Wait -PassThru
+  if($taskExtract.ExitCode){throw 'libmpv extraction failed'}
 } else {throw 'Install 7-Zip to extract the pinned runtime'}
 if(!(Test-Path -LiteralPath (Join-Path $taskTarget 'libmpv-2.dll'))){throw 'libmpv extraction failed'}
 

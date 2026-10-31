@@ -4,6 +4,16 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseStore = System.getenv("ANDROID_KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+val releaseAlias = System.getenv("ANDROID_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+val hasReleaseSigning = listOf(releaseStore, releaseStorePassword, releaseAlias, releaseKeyPassword)
+    .all { !it.isNullOrBlank() }
+if (System.getenv("TVE_REQUIRE_RELEASE_SIGNING") == "true" && !hasReleaseSigning) {
+    throw GradleException("Production release requires all four ANDROID signing environment variables")
+}
+
 android {
     namespace = "com.leos.leos_fast_video_edit"
     compileSdk = flutter.compileSdkVersion
@@ -21,6 +31,11 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = maxOf(24, flutter.minSdkVersion)
+        ndk {
+            // Replace Flutter's defaults rather than extending its three-ABI set.
+            abiFilters.clear()
+            abiFilters += listOf("arm64-v8a")
+        }
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -30,11 +45,21 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("production") {
+                storeFile = file(releaseStore!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Without credentials this is unsigned; CI builds a clearly named debug test APK.
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("production")
         }
     }
 }

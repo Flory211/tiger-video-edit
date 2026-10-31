@@ -34,3 +34,5 @@ downloads/
 *.apk
 *.exe
 *.dll
+__pycache__/
+*.pyc

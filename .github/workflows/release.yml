@@ -1,0 +1,86 @@
+name: Approved Release
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing approved version tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  approval:
+    runs-on: ubuntu-24.04
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate approved tag and external gates
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          PUBLICATION_APPROVED: ${{ vars.PUBLICATION_APPROVED }}
+          LICENSE_REVIEW_APPROVED: ${{ vars.LICENSE_REVIEW_APPROVED }}
+          DEVICE_ACCEPTANCE_APPROVED: ${{ vars.DEVICE_ACCEPTANCE_APPROVED }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$PUBLICATION_APPROVED" == true && "$LICENSE_REVIEW_APPROVED" == true && "$DEVICE_ACCEPTANCE_APPROVED" == true ]]
+          [[ "$(git rev-parse "$TAG^{commit}")" == "$(git rev-parse HEAD)" ]]
+          version=$(sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' pubspec.yaml)
+          [[ "$TAG" == "v$version" ]]
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Scan all reachable history
+        run: python tools/scan_secrets.py --mode history
+  windows:
+    needs: approval
+    uses: ./.github/workflows/windows.yml
+  android:
+    needs: approval
+    uses: ./.github/workflows/android.yml
+    with:
+      production: true
+    secrets: inherit
+  publish:
+    needs: [windows, android]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          path: packages/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-package
+          path: packages/android
+      - name: Verify exact artifact set and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python tools/release_integrity.py verify packages/windows
+          python tools/release_integrity.py verify packages/android
+          grep -qx 'signing=production-key' packages/android/build-info.txt
+          ! find packages -name '*TEST*' | grep .
+          mkdir release-assets
+          cp packages/windows/*.exe packages/android/*.apk release-assets/
+          cp packages/windows/build-info.txt release-assets/windows-build-info.txt
+          cp packages/android/build-info.txt release-assets/android-build-info.txt
+          python tools/release_integrity.py create release-assets
+          python tools/release_integrity.py verify release-assets
+          gh release create "$TAG" release-assets/* --verify-tag --title "Tiger Video Edit ${TAG#v}" --notes-file docs/RELEASE_NOTES_3.0.md

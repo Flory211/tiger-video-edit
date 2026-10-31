@@ -1,0 +1,56 @@
+name: Windows Build
+on:
+  push:
+    branches: [main, master, 'feature/**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.47.8 https://github.com/flutter/flutter.git .tools/flutter
+          if ($LASTEXITCODE) { throw 'Flutter checkout failed' }
+          if ((git -C .tools/flutter rev-parse HEAD) -ne '737ba8f885dc774b53b442759999a312c9461e4e') { throw 'Flutter commit mismatch' }
+          "$pwd/.tools/flutter/bin" | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Native libraries (verified downloads)
+        run: ./tools/bootstrap-ci-windows.ps1
+      - name: Generate original demo fixtures
+        run: |
+          $env:PATH="$env:FFMPEG_BIN;$env:PATH"
+          node tools/generate-demo.cjs
+          if ($LASTEXITCODE) { throw 'Demo generation failed' }
+          node tools/generate-v2-demo.cjs
+          if ($LASTEXITCODE) { throw 'Motion fixture generation failed' }
+      - name: Tool tests
+        run: python -m unittest discover -s tools -p test_release_tools.py
+      - name: Analyze, test, build, verify and package
+        run: ./tools/build-windows.ps1
+      - name: Record build and checksums
+        run: |
+          "commit=$env:GITHUB_SHA`nflutter=3.47.8`nplatform=windows-x64`nsigning=unsigned-authenticode" | Set-Content dist/build-info.txt
+          python tools/release_integrity.py create dist
+          if ($LASTEXITCODE) { throw 'Manifest creation failed' }
+          python tools/release_integrity.py verify dist
+          if ($LASTEXITCODE) { throw 'Manifest verification failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

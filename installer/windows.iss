@@ -1,5 +1,7 @@
 #define AppName "Tiger Video Edit"
-#define AppVersion "2.0.0"
+#ifndef AppVersion
+#define AppVersion "3.0.0"
+#endif
 [Setup]
 AppId={{F532F8DE-68FC-47B4-86C0-B22BDA909622}
 AppName={#AppName}
@@ -12,7 +14,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist
-OutputBaseFilename=TigerVideoEdit-2.0.0-Windows-x64-Setup
+OutputBaseFilename=TigerVideoEdit-{#AppVersion}-Windows-x64-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -41,5 +43,3 @@ Root: HKA; Subkey: "Software\Classes\.tve"; ValueType: string; ValueName: ""; Va
 Root: HKA; Subkey: "Software\Classes\TigerVideoEdit.Project"; ValueType: string; ValueName: ""; ValueData: "Tiger Video Edit Project"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\TigerVideoEdit.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\tiger_video_edit.exe,0"
 Root: HKA; Subkey: "Software\Classes\TigerVideoEdit.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\tiger_video_edit.exe"" ""%1"""
-
-
