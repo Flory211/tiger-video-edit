@@ -8,9 +8,12 @@ import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.media.AudioFormat
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -21,6 +24,8 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.VideoEncoderSettings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -31,6 +36,7 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.ceil
 
 @UnstableApi
 class MainActivity: FlutterActivity() {
@@ -41,14 +47,54 @@ class MainActivity: FlutterActivity() {
     private var failure: String? = null
     private var output: String? = null
     private var expectedDurationUs = 0L
+    private var expectedFrameRate = 30
     private var saveResult: MethodChannel.Result? = null
     private var savePath: String? = null
+    @Volatile private var audioDecodeCancelled = false
+    private var audioDecodeBusy = false
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "tiger/media").setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
+                    "installUpdate" -> {
+                        val apk = File(call.argument<String>("path")!!).canonicalFile
+                        val updates = File(filesDir, "updates").canonicalFile
+                        require(apk.isFile && apk.length() > 0 && apk.extension.equals("apk", true)
+                            && apk.path.startsWith(updates.path + File.separator)) { "APK должен находиться в приватной папке обновлений" }
+                        if (android.os.Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+                            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName")))
+                            result.success("permission-required")
+                        } else {
+                            val uri = FileProvider.getUriForFile(this, "$packageName.updates", apk)
+                            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            })
+                            result.success("installer-opened")
+                        }
+                    }
+                    "decodeAudioPcm" -> {
+                        check(!audioDecodeBusy) { "Декодирование звука уже выполняется" }
+                        val path = call.argument<String>("path")!!
+                        val destination = call.argument<String>("output")!!
+                        val start = call.argument<Number>("startUs")!!.toLong()
+                        val duration = call.argument<Number>("durationUs")!!.toLong()
+                        require(start >= 0 && duration > 0 && duration <= 86400000000L)
+                        audioDecodeBusy = true; audioDecodeCancelled = false
+                        worker.execute {
+                            try {
+                                val metadata = decodeAudioPcm(path, destination, start, duration)
+                                main.post { audioDecodeBusy = false; result.success(metadata) }
+                            } catch (e: Exception) {
+                                File(destination).delete()
+                                main.post { audioDecodeBusy = false; result.error("audioDecode", e.message, null) }
+                            }
+                        }
+                    }
+                    "cancelAudioDecode" -> { audioDecodeCancelled = true; result.success(null) }
                     "waveform" -> {
                         val path = call.argument<String>("path")!!
                         val duration = call.argument<Number>("durationUs")!!.toLong()
@@ -98,19 +144,32 @@ class MainActivity: FlutterActivity() {
                     }
                     "startExport" -> {
                         check(transformer == null) { "Экспорт уже выполняется" }
+                        val frameRate = call.argument<Number>("fps")?.toInt() ?: 30
+                        require(frameRate in listOf(24, 30, 60)) { "Неподдерживаемая частота кадров" }
+                        val width = call.argument<Number>("width")!!.toInt()
+                        val height = call.argument<Number>("height")!!.toInt()
+                        require(width in 2..1920 && height in 2..1920 && width % 2 == 0 && height % 2 == 0) {
+                            "Неподдерживаемое разрешение видео"
+                        }
+                        val requestedBitrate = call.argument<Number>("videoBitrate")
+                        require(requestedBitrate == null || (requestedBitrate.toDouble().isFinite()
+                            && requestedBitrate.toDouble() == requestedBitrate.toLong().toDouble()
+                            && requestedBitrate.toLong() in 500000L..50000000L)) { "Некорректный битрейт видео" }
+                        val videoBitrate = requestedBitrate?.toInt()
+                            ?: (width.toLong() * height * frameRate * 0.12).toLong().coerceIn(500000L, 50000000L).toInt()
                         ensureEncoder("video/avc"); ensureEncoder("audio/mp4a-latm")
                         done = false; failure = null
                         val audio = call.argument<String>("audio")!!
                         val start = call.argument<Number>("startUs")!!.toLong()
                         val duration = call.argument<Number>("durationUs")!!.toLong()
                         val path = call.argument<String>("output")!!
-                        output = path; expectedDurationUs = duration
+                        output = path; expectedDurationUs = duration; expectedFrameRate = frameRate
                         val items = call.argument<List<Map<String, Any>>>("segments")!!.map { s ->
                             val frames = (s["frames"] as Number).toLong()
-                            val itemDuration = frames * 1000000L / 30L
+                            val itemDuration = frames * 1000000L / frameRate
                             val media = MediaItem.Builder().setUri(Uri.fromFile(File(s["path"] as String)))
                                 .setImageDurationMs((itemDuration + 999L) / 1000L).build()
-                            EditedMediaItem.Builder(media).setDurationUs(itemDuration).setFrameRate(30).setRemoveAudio(true).build()
+                            EditedMediaItem.Builder(media).setDurationUs(itemDuration).setFrameRate(frameRate).setRemoveAudio(true).build()
                         }
                         val audioMedia = MediaItem.Builder().setUri(Uri.fromFile(File(audio)))
                             .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
@@ -119,12 +178,18 @@ class MainActivity: FlutterActivity() {
                         val composition = Composition.Builder(
                             EditedMediaItemSequence.withVideoFrom(items),
                             EditedMediaItemSequence.withAudioFrom(listOf(sound))).build()
+                        // The requested quality reaches the real encoder. Media3 may adapt
+                        // bitrate/resolution if the device cannot encode the requested format.
+                        val encoders = DefaultEncoderFactory.Builder(this)
+                            .setRequestedVideoEncoderSettings(VideoEncoderSettings.Builder().setBitrate(videoBitrate).build())
+                            .setEnableFallback(true).build()
                         val job = Transformer.Builder(this)
+                            .setEncoderFactory(encoders)
                             .setVideoMimeType(MimeTypes.VIDEO_H264).setAudioMimeType(MimeTypes.AUDIO_AAC)
                             .addListener(object: Transformer.Listener {
                                 override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                                     worker.execute {
-                                        try { validateOutput(path, expectedDurationUs); main.post { done = true; transformer = null } }
+                                        try { validateOutput(path, expectedDurationUs, expectedFrameRate); main.post { done = true; transformer = null } }
                                         catch (e: Exception) { main.post { failure = e.message ?: "Проверка MP4 не удалась"; transformer = null } }
                                     }
                                 }
@@ -142,15 +207,20 @@ class MainActivity: FlutterActivity() {
                         result.success(mapOf("done" to done, "error" to failure, "progress" to if(done) 1.0 else progress.progress / 100.0))
                     }
                     "cancel" -> {
+                        audioDecodeCancelled = true
                         transformer?.cancel(); transformer = null; done = false; failure = "Экспорт отменён"
                         output?.let { File(it).delete() }; result.success(null)
                     }
-                    "saveVideo" -> {
+                    "saveVideo", "saveDocument" -> {
                         check(saveResult == null) { "Диалог сохранения уже открыт" }
                         savePath = call.argument<String>("path")!!
+                        val mime = if (call.method == "saveVideo") "video/mp4" else
+                            call.argument<String>("mime") ?: "application/json"
+                        require(mime in listOf("application/json", "video/mp4")) { "Неподдерживаемый тип документа" }
+                        check(File(savePath!!).isFile) { "Документ не найден" }
                         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE); type = "video/mp4"
-                            putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: "Tiger.mp4")
+                            addCategory(Intent.CATEGORY_OPENABLE); type = mime
+                            putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: if(mime == "application/json") "Tiger-templates.json" else "Tiger.mp4")
                         }
                         saveResult = result
                         startActivityForResult(intent, 741)
@@ -168,7 +238,7 @@ class MainActivity: FlutterActivity() {
         check(found) { "На устройстве недоступен кодировщик $mime" }
     }
 
-    private fun validateOutput(path: String, durationUs: Long) {
+    private fun validateOutput(path: String, durationUs: Long, frameRate: Int) {
         check(File(path).length() > 100L) { "Видео не создано" }
         val extractor = MediaExtractor()
         try {
@@ -179,6 +249,9 @@ class MainActivity: FlutterActivity() {
                 when (format.getString(MediaFormat.KEY_MIME)) {
                     "video/avc" -> {
                         video = true
+                        if (format.containsKey(MediaFormat.KEY_FRAME_RATE)) {
+                            check(format.getInteger(MediaFormat.KEY_FRAME_RATE) == frameRate) { "Некорректная частота кадров видео" }
+                        }
                         if(format.containsKey(MediaFormat.KEY_DURATION)) {
                             check(abs(format.getLong(MediaFormat.KEY_DURATION) - durationUs) < 160000L) { "Некорректная длительность видео" }
                         }
@@ -268,6 +341,99 @@ class MainActivity: FlutterActivity() {
             codec?.release(); extractor.release()
         }
     }
-    override fun onDestroy() { transformer?.cancel(); worker.shutdown(); super.onDestroy() }
+
+    // Headerless PCM is streamed to an export-owned temporary file. Dart resamples
+    // bounded chunks to stereo 48 kHz and applies the same gainAt envelope as preview.
+    private fun decodeAudioPcm(path: String, destination: String, startUs: Long,
+                               durationUs: Long): Map<String, Any> {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        try {
+            extractor.setDataSource(path)
+            val track = (0 until extractor.trackCount).firstOrNull {
+                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            } ?: error("Нет звуковой дорожки")
+            extractor.selectTrack(track)
+            extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            val format = extractor.getTrackFormat(track)
+            val decoder = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
+            codec = decoder
+            decoder.configure(format, null, null, 0); decoder.start()
+            var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            var floating = false
+            var inputDone = false; var finished = false
+            var framesWritten = 0L
+            var channelMask = if (format.containsKey(MediaFormat.KEY_CHANNEL_MASK)) format.getInteger(MediaFormat.KEY_CHANNEL_MASK) else 0
+            var hasOutput = false
+            var lastProgress = System.nanoTime()
+            val endUs = Math.addExact(startUs, durationUs)
+            val info = MediaCodec.BufferInfo()
+            File(destination).outputStream().buffered(65536).use { output ->
+                while (!finished) {
+                    check(!audioDecodeCancelled) { "Подготовка звука отменена" }
+                    check(System.nanoTime() - lastProgress < 30000000000L) { "Декодер не отвечает" }
+                    if (!inputDone) {
+                        val index = decoder.dequeueInputBuffer(10000)
+                        if (index >= 0) {
+                            val buffer = decoder.getInputBuffer(index)!!
+                            val count = if (extractor.sampleTime >= endUs) -1 else extractor.readSampleData(buffer, 0)
+                            if (count < 0) {
+                                decoder.queueInputBuffer(index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                inputDone = true
+                            } else {
+                                decoder.queueInputBuffer(index, 0, count, extractor.sampleTime, 0)
+                                extractor.advance()
+                            }
+                        }
+                    }
+                    val index = decoder.dequeueOutputBuffer(info, 10000)
+                    if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        val out = decoder.outputFormat
+                        val newRate = out.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        val newChannels = out.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        val encoding = if (out.containsKey(MediaFormat.KEY_PCM_ENCODING))
+                            out.getInteger(MediaFormat.KEY_PCM_ENCODING) else AudioFormat.ENCODING_PCM_16BIT
+                        require(newRate in 8000..384000 && newChannels in 1..8) { "Неподдерживаемый PCM" }
+                        require(encoding == AudioFormat.ENCODING_PCM_16BIT || encoding == AudioFormat.ENCODING_PCM_FLOAT) { "Неподдерживаемая разрядность PCM" }
+                        val newFloating = encoding == AudioFormat.ENCODING_PCM_FLOAT
+                        if (out.containsKey(MediaFormat.KEY_CHANNEL_MASK)) channelMask = out.getInteger(MediaFormat.KEY_CHANNEL_MASK)
+                        check(!hasOutput || (newRate == rate && newChannels == channels && newFloating == floating)) { "Формат PCM изменился внутри файла" }
+                        rate = newRate; channels = newChannels; floating = newFloating
+                    }
+                    if (index >= 0) {
+                        try {
+                            lastProgress = System.nanoTime()
+                            val buffer = decoder.getOutputBuffer(index)!!
+                            val bytesPerFrame = channels * if (floating) 4 else 2
+                            val frames = info.size / bytesPerFrame
+                            val first = ceil((startUs - info.presentationTimeUs).toDouble() * rate / 1000000.0).toLong().coerceIn(0L, frames.toLong()).toInt()
+                            val end = ceil((endUs - info.presentationTimeUs).toDouble() * rate / 1000000.0).toLong().coerceIn(0L, frames.toLong()).toInt()
+                            if (end > first) {
+                                buffer.position(info.offset + first * bytesPerFrame)
+                                buffer.limit(info.offset + end * bytesPerFrame)
+                                val chunk = ByteArray(min(65536, buffer.remaining()))
+                                while (buffer.hasRemaining()) {
+                                    check(!audioDecodeCancelled) { "Подготовка звука отменена" }
+                                    val count = min(chunk.size, buffer.remaining())
+                                    buffer.get(chunk, 0, count); output.write(chunk, 0, count)
+                                }
+                                framesWritten += end - first; hasOutput = true
+                            }
+                            finished = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0 ||
+                                info.presentationTimeUs + frames * 1000000L / max(1, rate) >= endUs
+                        } finally { decoder.releaseOutputBuffer(index, false) }
+                    }
+                }
+            }
+            return mapOf("sampleRate" to rate, "channels" to channels,
+                "floatPcm" to floating, "frames" to framesWritten, "channelMask" to channelMask)
+        } finally {
+            try { codec?.stop() } catch (_: Exception) { }
+            codec?.release(); extractor.release()
+        }
+    }
+
+    override fun onDestroy() { audioDecodeCancelled = true; transformer?.cancel(); worker.shutdown(); super.onDestroy() }
 }
 

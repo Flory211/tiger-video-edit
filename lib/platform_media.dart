@@ -10,8 +10,9 @@ import 'model.dart';
 import 'media_bridge.dart';
 import 'compositor.dart';
 import 'media_frames.dart';
+import 'audio_mixer.dart';
 export 'media_bridge.dart';
-export 'compositor.dart' show paintStill, paintFrame;
+export 'compositor.dart' show paintStill, paintFrame, VisualFrame;
 
 class AudioEngine {
   final Player player = Player();
@@ -257,10 +258,21 @@ class VideoExporter {
     Directory? temp;
     try {
       p.validate();
+      final rate = p.frameRate;
       if (p.audio == null || p.images.isEmpty || p.totalFrames <= 0) {
         throw StateError('Добавьте музыку и изображения');
       }
       temp = await Directory.systemTemp.createTemp('tiger_render_');
+      var inputAudio = p.audio!, audioStart = p.startUs;
+      if (p.audioClips.isNotEmpty || p.musicVolume != 1 || p.soundVolume != 1) {
+        inputAudio = await prepareAudioMix(
+          p,
+          temp,
+          (v) => progress(v * .05),
+          () => _cancelled,
+        );
+        audioStart = 0;
+      }
       final staged = '${temp.path}/result.mp4';
       final inputs = <({String path, int frames})>[];
       final animated = p.needsFrameRendering;
@@ -270,6 +282,13 @@ class VideoExporter {
         );
         final schedule = p.segments;
         var segmentIndex = 0;
+        ui.Image? previousImage;
+        Still? previousItem;
+        var previousSegment = -1;
+        final previousSource = MediaFrameSource(
+          maxDimension: math.max(p.width, p.height),
+        );
+        final overlaySources = <String, MediaFrameSource>{};
         try {
           for (var frame = 0; frame < p.totalFrames; frame++) {
             _check();
@@ -280,8 +299,48 @@ class VideoExporter {
             final segment = schedule[segmentIndex],
                 item = p.images[segment.imageIndex];
             final localUs =
-                ((frame - segment.startFrame) * 1000000 + fps - 1) ~/ fps;
+                ((frame - segment.startFrame) * 1000000 + rate - 1) ~/ rate;
+            final sourceUs = p.startUs + frame * 1000000 ~/ rate;
+            if (previousSegment != segmentIndex) {
+              previousSegment = segmentIndex;
+              previousImage?.dispose();
+              previousImage = null;
+              previousItem = null;
+              if (segmentIndex > 0) {
+                final prev = schedule[segmentIndex - 1];
+                previousItem = p.images[prev.imageIndex];
+                previousImage = await previousSource.frame(
+                  previousItem,
+                  (prev.frameCount - 1) * 1000000 ~/ rate,
+                );
+              }
+            }
             final image = await source.frame(item, localUs);
+            final active =
+                p.visualClips.where((c) => c.activeAt(sourceUs)).toList()
+                  ..sort((a, b) => a.track.compareTo(b.track));
+            final overlayFrames = <VisualFrame>[];
+            for (final c in active) {
+              final decoder = overlaySources.putIfAbsent(
+                c.id,
+                () =>
+                    MediaFrameSource(maxDimension: math.max(p.width, p.height)),
+              );
+              overlayFrames.add(
+                VisualFrame(
+                  c.media,
+                  await decoder.frame(c.media, sourceUs - c.startUs),
+                  sourceUs - c.startUs,
+                  c.opacity,
+                ),
+              );
+            }
+            for (final id
+                in overlaySources.keys
+                    .where((id) => !active.any((c) => c.id == id))
+                    .toList()) {
+              await overlaySources.remove(id)!.dispose();
+            }
             final recorder = ui.PictureRecorder();
             paintFrame(
               ui.Canvas(recorder),
@@ -289,9 +348,13 @@ class VideoExporter {
               image,
               item,
               localUs: localUs,
-              sourceUs: p.startUs + frame * 1000000 ~/ fps,
+              sourceUs: sourceUs,
               captions: p.captions,
               referenceWidth: p.width.toDouble(),
+              project: p,
+              previousImage: previousImage,
+              previousItem: previousItem,
+              overlays: overlayFrames,
             );
             final picture = recorder.endRecording();
             final output = await picture.toImage(p.width, p.height);
@@ -308,11 +371,19 @@ class VideoExporter {
               image.dispose();
               picture.dispose();
               output.dispose();
+              for (final overlay in overlayFrames) {
+                overlay.image.dispose();
+              }
             }
             progress(.65 * (frame + 1) / p.totalFrames);
           }
         } finally {
           await source.dispose();
+          previousImage?.dispose();
+          await previousSource.dispose();
+          for (final decoder in overlaySources.values) {
+            await decoder.dispose();
+          }
         }
       } else {
         final frames = <String>[];
@@ -332,9 +403,21 @@ class VideoExporter {
       }
       if (Platform.isAndroid) {
         await nativeMedia.invokeMethod('startExport', {
-          'audio': p.audio,
-          'startUs': p.startUs,
-          'durationUs': p.totalFrames * 1000000 ~/ fps,
+          'audio': inputAudio,
+          'startUs': audioStart,
+          'durationUs': p.totalFrames * 1000000 ~/ rate,
+          'fps': rate,
+          'videoBitrate':
+              (p.width *
+                      p.height *
+                      rate *
+                      (p.videoCrf <= 16
+                          ? 0.18
+                          : p.videoCrf <= 22
+                          ? 0.12
+                          : 0.07))
+                  .round()
+                  .clamp(500000, 50000000),
           'width': p.width,
           'height': p.height,
           'output': staged,
@@ -363,13 +446,13 @@ class VideoExporter {
         await _run(
           [
             '-framerate',
-            '$fps',
+            '$rate',
             '-i',
             '${temp.path}/frame_%08d.png',
             '-ss',
-            '${p.startUs / 1000000}',
+            '${audioStart / 1000000}',
             '-i',
-            p.audio!,
+            inputAudio,
             '-map',
             '0:v:0',
             '-map',
@@ -381,7 +464,7 @@ class VideoExporter {
             '-preset',
             'veryfast',
             '-crf',
-            '18',
+            '${p.videoCrf}',
             '-pix_fmt',
             'yuv420p',
             '-c:a',
@@ -391,7 +474,7 @@ class VideoExporter {
             '-af',
             'apad',
             '-t',
-            '${p.totalFrames / fps}',
+            '${p.totalFrames / rate}',
             '-movflags',
             '+faststart',
             staged,
@@ -399,7 +482,7 @@ class VideoExporter {
           (value) => progress(.65 + .3 * value),
           p.totalFrames,
         );
-        await validateVideo(staged, p.totalFrames / fps);
+        await validateVideo(staged, p.totalFrames / rate);
       } else {
         var completed = 0;
         for (var i = 0; i < inputs.length; i++) {
@@ -409,7 +492,7 @@ class VideoExporter {
               '-loop',
               '1',
               '-framerate',
-              '$fps',
+              '$rate',
               '-i',
               input.path,
               '-frames:v',
@@ -420,11 +503,11 @@ class VideoExporter {
               '-preset',
               'veryfast',
               '-crf',
-              '18',
+              '${p.videoCrf}',
               '-pix_fmt',
               'yuv420p',
               '-r',
-              '$fps',
+              '$rate',
               '${temp.path}/segment_$i.mp4',
             ],
             (value) => progress(
@@ -448,9 +531,9 @@ class VideoExporter {
             '-i',
             list.path,
             '-ss',
-            '${p.startUs / 1000000}',
+            '${audioStart / 1000000}',
             '-i',
-            p.audio!,
+            inputAudio,
             '-map',
             '0:v:0',
             '-map',
@@ -464,7 +547,7 @@ class VideoExporter {
             '-af',
             'apad',
             '-t',
-            '${p.totalFrames / fps}',
+            '${p.totalFrames / rate}',
             '-movflags',
             '+faststart',
             staged,
@@ -472,7 +555,7 @@ class VideoExporter {
           null,
           p.totalFrames,
         );
-        await validateVideo(staged, p.totalFrames / fps);
+        await validateVideo(staged, p.totalFrames / rate);
       }
       _check();
       if (!await File(staged).exists() || await File(staged).length() < 100) {
@@ -487,13 +570,30 @@ class VideoExporter {
         if (uri == null) throw ExportCancelled();
       } else {
         final pending = File('$destination.tve-pending');
-        await File(staged).copy(pending.path);
-        final out = File(destination);
-        // Keep a recoverable existing output until the new file has been staged.
-        if (await out.exists()) await out.rename('$destination.previous');
-        await pending.rename(destination);
+        try {
+          await File(staged).copy(pending.path);
+          _check();
+          final out = File(destination),
+              previous = File('$destination.previous');
+          // This short metadata commit cannot interleave with cancellation.
+          if (previous.existsSync()) previous.deleteSync();
+          final existed = out.existsSync();
+          if (existed) out.renameSync(previous.path);
+          try {
+            pending.renameSync(destination);
+          } catch (_) {
+            if (existed && previous.existsSync() && !out.existsSync()) {
+              previous.renameSync(destination);
+            }
+            rethrow;
+          }
+        } finally {
+          if (await pending.exists()) await pending.delete();
+        }
       }
       progress(1);
+    } on AudioMixCancelled {
+      throw ExportCancelled();
     } finally {
       _running = false;
       _process = null;

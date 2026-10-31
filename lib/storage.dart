@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
 import 'model.dart';
+import 'app_settings.dart' show atomicWriteBytes;
 
 class ProjectStore {
   static Future<Project> read(String path) async {
@@ -23,6 +24,13 @@ class ProjectStore {
         images: [
           for (final image in project.images)
             image.copy(path: resolve(image.path)),
+        ],
+        audioClips: [
+          for (final c in project.audioClips) c.copy(path: resolve(c.path)),
+        ],
+        visualClips: [
+          for (final c in project.visualClips)
+            c.copy(media: c.media.copy(path: resolve(c.media.path))),
         ],
       );
     } on FormatException {
@@ -49,9 +57,20 @@ class ProjectStore {
       } on FormatException {
         /* Keep backup. */
       }
-      await dest.delete();
     }
-    await stage.rename(path);
+    final previous = File('$path.previous');
+    if (previous.existsSync()) previous.deleteSync();
+    final existed = dest.existsSync();
+    if (existed) dest.renameSync(previous.path);
+    try {
+      stage.renameSync(path);
+    } catch (_) {
+      if (existed && previous.existsSync() && !dest.existsSync()) {
+        previous.renameSync(path);
+      }
+      rethrow;
+    }
+    if (previous.existsSync()) previous.deleteSync();
   }
 
   static Future<List<String>> missing(Project p) async {
@@ -59,6 +78,8 @@ class ProjectStore {
     for (final path in {
       if (p.audio != null) p.audio!,
       ...p.images.map((e) => e.path),
+      ...p.audioClips.map((c) => c.path),
+      ...p.visualClips.map((c) => c.media.path),
     }) {
       if (!await File(path).exists()) result.add(path);
     }
@@ -68,6 +89,7 @@ class ProjectStore {
 
 class LocalLibrary {
   final Directory root;
+  Future<void> _preferenceWrites = Future.value();
   LocalLibrary(this.root);
   static Future<LocalLibrary> open() async {
     var dir = await getApplicationSupportDirectory();
@@ -98,20 +120,28 @@ class LocalLibrary {
   }
 
   Future<Map<String, dynamic>> loadPreferences() async {
-    try {
-      return jsonDecode(await File('${root.path}/settings.json').readAsString())
-          as Map<String, dynamic>;
-    } catch (_) {
-      return {};
+    for (final suffix in ['', '.bak']) {
+      try {
+        final file = File('${root.path}/settings.json$suffix');
+        if (await file.length() > 1024 * 1024) continue;
+        return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      } catch (_) {
+        /* Try the previous complete settings file. */
+      }
     }
+    return {};
   }
 
-  Future<void> preferences(Map<String, dynamic> data) async {
-    final temp = File('${root.path}/settings.json.tmp');
-    await temp.writeAsString(jsonEncode(data), flush: true);
-    final dest = File('${root.path}/settings.json');
-    if (await dest.exists()) await dest.delete();
-    await temp.rename(dest.path);
+  Future<void> preferences(Map<String, dynamic> data) {
+    final bytes = utf8.encode(jsonEncode(data));
+    final task = _preferenceWrites.then(
+      (_) => atomicWriteBytes(File('${root.path}/settings.json'), bytes),
+    );
+    _preferenceWrites = task.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return task;
   }
 
   String projectPath(String name) =>

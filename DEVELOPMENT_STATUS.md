@@ -1,4 +1,18 @@
-# Tiger Video Edit 2.0.0 — current development status
+# Tiger Video Edit 3.0.0+3004 — local release candidate
+
+Branch: `feature/tiger-3.0`, baseline commit `6f1e510`. The existing v2 application/data and LICENSE were preserved; no public repository or release was created. Read docs/V3_IMPLEMENTATION_PLAN.md and docs/V3_COVERAGE.md for the full migration scope.
+
+Verified before migration: 45/45 root tests, clean analyzer. New targeted checks cover schema migration, effect pixels/curves, service failures/checksums, navigation/unsaved guards, template files, audio mixing and settings/selection regressions. A native Windows v3 export passed twice: H.264/AAC, 854×480/24FPS/36frames/1.5s; preview-vs-output RGB MAE 1.384/255, actual layered effects/transition/overlay/Cyrillic caption/SFX and cancellation preservation. See docs/V3_NATIVE_EXPORT_CHECK.md. Final whole-suite and packaged artifact results will be added after integration.
+
+Final application checkpoint: **119/119 root tests passed; flutter analyze reports No issues found.** Tool tests 2/2 pass. All three workflow YAML documents parse using the existing Flutter SDK YAML parser; official SDK tag 3.47.8 resolves to the pinned commit. Actual GitHub runner execution still awaits approved publication. Native v3 UI screenshots and interaction capture passed using an isolated temporary library: docs/V3_HOME.png, V3_EDITOR.png, V3_PHONE.png. The final build counter changed from 4 to **3004** because the old distributed ARM64 split APK has versionCode 2003; the legacy and current test signing certificate fingerprints match. Final packages will be rebuilt with 3004.
+
+Intermediate Android debug v3.0.0+4 compiled and ZIP/ARM64-only/debug-signature/manifest checks passed; this is TEST-debug, not production signing and not physical-device acceptance. Windows v3 native close-handshake compiled; final integrated installer is being prepared.
+
+External production gates: owner approval for source/release publication and inherited-license/native-source review; production Android signing; real GitHub Actions runs and clean-device acceptance; Jamendo agreement for an activated online provider. Local music/SFX/edit/export remain offline. Nothing behind these gates is claimed complete.
+
+---
+
+# Historical Tiger Video Edit 2.0.0 status
 
 First functional v2 release of all three user-selected blocks is implemented and packaged. Existing 1.0.1 artifacts are preserved. The remaining original roadmap is not claimed complete.
 

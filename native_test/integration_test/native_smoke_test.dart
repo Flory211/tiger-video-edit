@@ -76,13 +76,24 @@ void main() {
     await tester.runAsync(() => dir.delete(recursive: true));
   }, timeout: const Timeout(Duration(minutes: 3)));
   testWidgets('production bootstrap opens home', (tester) async {
+    final dir = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('tiger_bootstrap_'),
+    ))!;
     await tester.runAsync(
-      () => app.main([]).timeout(const Duration(seconds: 25)),
+      () =>
+          File('${dir.path}/app_settings.json')
+              .writeAsString('{"autoCheckUpdates":false}'),
+    );
+    await tester.runAsync(
+      () => app
+          .main([], libraryOverride: LocalLibrary(dir))
+          .timeout(const Duration(seconds: 25)),
     );
     await tester.pumpAndSettle();
     expect(find.text('TIGER'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(() => dir.delete(recursive: true));
   }, timeout: const Timeout(Duration(minutes: 1)));
   testWidgets('native audio marker save reopen workflow', (tester) async {
     const root = String.fromEnvironment(
@@ -146,4 +157,3 @@ void main() {
     await tester.runAsync(() => dir.delete(recursive: true));
   }, timeout: const Timeout(Duration(minutes: 4)));
 }
-

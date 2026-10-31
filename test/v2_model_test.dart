@@ -18,7 +18,7 @@ void main() {
       captions: [Caption(id: 'a', text: 'Tiger', startUs: 0, endUs: 1000000)],
     );
     final json = p.toJson();
-    expect(json['version'], 2);
+    expect(json['version'], 3);
     final q = Project.fromJson(json);
     expect(q.images.single.kind, 'video');
     expect(q.images.single.effects['shake'], .4);

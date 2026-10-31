@@ -19,6 +19,8 @@ class FakeStreams extends Fake implements PlayerStream {
 class DevicePlayer extends Fake implements Player {
   int time = 0;
   @override
+  Future<void> setVolume(double volume) async {}
+  @override
   PlayerStream get stream => FakeStreams();
   @override
   Future<void> pause() async {}

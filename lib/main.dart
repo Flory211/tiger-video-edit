@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/services.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:media_kit/media_kit.dart';
@@ -13,18 +15,34 @@ import 'platform_media.dart';
 import 'media_frames.dart';
 import 'v2_panel.dart';
 import 'storage.dart';
+import 'app_settings.dart';
+import 'workspace_shell.dart';
+import 'v3_panel.dart';
+import 'timeline_tracks.dart';
+import 'unsaved.dart';
+import 'edit_templates.dart';
 
-Future<void> main(List<String> args) async {
+Future<void> main(List<String> args, {LocalLibrary? libraryOverride}) async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     MediaKit.ensureInitialized();
-    final editor = Editor(await LocalLibrary.open(), AudioEngine());
+    final editor = Editor(
+      libraryOverride ?? await LocalLibrary.open(),
+      AudioEngine(),
+    );
     await editor.initialize();
-    runApp(TigerApp(editor: editor));
+    runApp(
+      TigerApp(editor: editor, showHome: true, startInEditor: args.isNotEmpty),
+    );
     if (args.isNotEmpty) {
       await editor.guard(() => editor.openProject(args.first));
     }
   } catch (e) {
+    if (Platform.isWindows) {
+      _windowChannel.setMethodCallHandler(
+        (call) async => call.method == 'requestClose',
+      );
+    }
     runApp(
       MaterialApp(
         home: Scaffold(
@@ -37,6 +55,8 @@ Future<void> main(List<String> args) async {
   }
 }
 
+const _windowChannel = MethodChannel('tiger/window');
+
 const accent = Color(0xffc6f36a), panel = Color(0xff191c22);
 String labelPath(String? path) =>
     path?.replaceAll('\\', '/').split('/').last ?? 'Музыка не добавлена';
@@ -47,34 +67,142 @@ String clockTime(int us) {
 
 class TigerApp extends StatelessWidget {
   final Editor editor;
-  const TigerApp({super.key, required this.editor});
+  final bool showHome;
+  final bool startInEditor;
+  const TigerApp({
+    super.key,
+    required this.editor,
+    this.showHome = false,
+    this.startInEditor = false,
+  });
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    title: 'Tiger Video Edit',
-    theme: ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: const Color(0xff101217),
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: accent,
-        brightness: Brightness.dark,
-        primary: accent,
-        surface: panel,
+  Widget build(BuildContext context) => ValueListenableBuilder<AppSettings>(
+    valueListenable: editor.settingsNotifier,
+    builder: (context, settings, _) => MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Tiger Video Edit',
+      theme: _editorTheme(Brightness.light),
+      darkTheme: _editorTheme(Brightness.dark),
+      themeMode: switch (settings.theme) {
+        AppTheme.system => ThemeMode.system,
+        AppTheme.dark => ThemeMode.dark,
+        AppTheme.light => ThemeMode.light,
+      },
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          disableAnimations: !settings.animationsAllowed(
+            systemReducedMotion: MediaQuery.disableAnimationsOf(context),
+          ),
+        ),
+        child: child!,
       ),
-      sliderTheme: const SliderThemeData(trackHeight: 3),
-      inputDecorationTheme: const InputDecorationTheme(
-        isDense: true,
-        border: OutlineInputBorder(),
+      home: _WindowCloseGuard(
+        editor: editor,
+        child: showHome
+            ? WorkspaceShell(
+                editor: editor,
+                initialEditor: startInEditor,
+                editorBuilder:
+                    (context, home, music, sounds, templates, settings) =>
+                        EditorScreen(
+                          editor: editor,
+                          onHome: home,
+                          onMusic: music,
+                          onSounds: sounds,
+                          onTemplates: templates,
+                          onSettings: settings,
+                        ),
+              )
+            : EditorScreen(editor: editor),
       ),
     ),
-    home: EditorScreen(editor: editor),
   );
+}
+
+ThemeData _editorTheme(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  final scheme = ColorScheme.fromSeed(
+    seedColor: accent,
+    brightness: brightness,
+  );
+  return ThemeData(
+    useMaterial3: true,
+    brightness: brightness,
+    scaffoldBackgroundColor: dark
+        ? const Color(0xff101217)
+        : const Color(0xfff6f8f1),
+    colorScheme: dark
+        ? scheme.copyWith(primary: accent, surface: panel)
+        : scheme,
+    sliderTheme: const SliderThemeData(trackHeight: 3),
+    inputDecorationTheme: const InputDecorationTheme(
+      isDense: true,
+      border: OutlineInputBorder(),
+    ),
+  );
+}
+
+// App-scoped because the initial home screen may not create an EditorScreen.
+class _WindowCloseGuard extends StatefulWidget {
+  final Editor editor;
+  final Widget child;
+  const _WindowCloseGuard({required this.editor, required this.child});
+  @override
+  State<_WindowCloseGuard> createState() => _WindowCloseGuardState();
+}
+
+class _WindowCloseGuardState extends State<_WindowCloseGuard> {
+  bool checking = false;
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isWindows) _windowChannel.setMethodCallHandler(_request);
+  }
+
+  Future<bool> _request(MethodCall call) async {
+    if (call.method != 'requestClose') throw MissingPluginException();
+    if (checking || !mounted) return false;
+    final e = widget.editor;
+    if (e.busy || e.exporting) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Дождитесь завершения операции или отмените экспорт перед закрытием.',
+          ),
+        ),
+      );
+      return false;
+    }
+    checking = true;
+    try {
+      return await confirmUnsavedChanges(context, e);
+    } finally {
+      checking = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (Platform.isWindows) _windowChannel.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class EditorScreen extends StatefulWidget {
   final Editor editor;
-  const EditorScreen({super.key, required this.editor});
+  final VoidCallback? onHome, onMusic, onSounds, onTemplates, onSettings;
+  const EditorScreen({
+    super.key,
+    required this.editor,
+    this.onHome,
+    this.onMusic,
+    this.onSounds,
+    this.onTemplates,
+    this.onSettings,
+  });
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
@@ -98,7 +226,7 @@ class _EditorScreenState extends State<EditorScreen>
       _lastPreviewIndex = index;
       final frame = math.max(
         0,
-        (e.positionUs - e.project.startUs) * fps ~/ 1000000,
+        (e.positionUs - e.project.startUs) * e.project.frameRate ~/ 1000000,
       );
       final paths = e.project.segments
           .where((s) => s.startFrame + s.frameCount > frame)
@@ -128,6 +256,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   bool _key(KeyEvent event) {
+    if (!WorkspaceVisibility.isActive(context)) return false;
     if (event is! KeyDownEvent ||
         FocusManager.instance.primaryFocus?.context?.widget is EditableText) {
       return false;
@@ -137,6 +266,18 @@ class _EditorScreenState extends State<EditorScreen>
       return false;
     }
     final ctrl = HardwareKeyboard.instance.isControlPressed;
+    if (ctrl && event.logicalKey == LogicalKeyboardKey.keyA) {
+      e.selectAllImages();
+      return true;
+    }
+    if (ctrl && event.logicalKey == LogicalKeyboardKey.keyC) {
+      e.copyEffects();
+      return true;
+    }
+    if (ctrl && event.logicalKey == LogicalKeyboardKey.keyV) {
+      e.pasteEffects();
+      return true;
+    }
     if (event.logicalKey == LogicalKeyboardKey.space) {
       e.guard(e.toggle);
       return true;
@@ -183,6 +324,7 @@ class _EditorScreenState extends State<EditorScreen>
           label: Text(text),
         );
   Future<void> newProject() async {
+    if (!await confirmUnsavedChanges(context, e) || !mounted) return;
     final name = await textDialog('Новый проект', 'Название', 'Мой эдит');
     if (name == null) return;
     await e.guard(() async {
@@ -208,7 +350,7 @@ class _EditorScreenState extends State<EditorScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Отмена'),
+            child: Text('Отмена'),
           ),
           FilledButton(
             onPressed: () {
@@ -216,7 +358,7 @@ class _EditorScreenState extends State<EditorScreen>
                 Navigator.pop(ctx, controller.text.trim());
               }
             },
-            child: const Text('Готово'),
+            child: Text('Готово'),
           ),
         ],
       ),
@@ -240,18 +382,18 @@ class _EditorScreenState extends State<EditorScreen>
         final restore = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Найдена автокопия'),
-            content: const Text(
+            title: Text('Найдена автокопия'),
+            content: Text(
               'Открыть более новую автоматически сохранённую версию?',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Оставить основную'),
+                child: Text('Оставить основную'),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Восстановить'),
+                child: Text('Восстановить'),
               ),
             ],
           ),
@@ -269,7 +411,7 @@ class _EditorScreenState extends State<EditorScreen>
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, set) => AlertDialog(
-          title: const Text('Настройки'),
+          title: Text('Настройки'),
           content: SizedBox(
             width: 400,
             child: Column(
@@ -288,7 +430,7 @@ class _EditorScreenState extends State<EditorScreen>
                   },
                 ),
                 SwitchListTile(
-                  title: const Text('Отсчёт 3, 2, 1'),
+                  title: Text('Отсчёт 3, 2, 1'),
                   value: e.countdown,
                   onChanged: (v) => set(() => e.countdown = v),
                 ),
@@ -300,14 +442,17 @@ class _EditorScreenState extends State<EditorScreen>
                   divisions: 59,
                   onChanged: (v) => set(() => e.autosaveSeconds = v.round()),
                 ),
-                const Text(
-                  'MP4 • H.264 / AAC • 30 FPS\n1920 × 1080 или 1080 × 1920',
+                Text(
+                  'MP4 • H.264 / AAC • ${e.project.frameRate} FPS\n${e.project.width} × ${e.project.height}',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   'Маркеры действуют только в активном окне. Погрешность нажатия зависит от устройства.',
-                  style: TextStyle(fontSize: 12, color: Colors.white54),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -315,7 +460,7 @@ class _EditorScreenState extends State<EditorScreen>
           actions: [
             FilledButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Сохранить'),
+              child: Text('Сохранить'),
             ),
           ],
         ),
@@ -339,11 +484,11 @@ class _EditorScreenState extends State<EditorScreen>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Пропустить'),
+              child: Text('Пропустить'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Указать новый файл'),
+              child: Text('Указать новый файл'),
             ),
           ],
         ),
@@ -370,10 +515,17 @@ class _EditorScreenState extends State<EditorScreen>
     final locked = e.busy || e.exporting;
     return Scaffold(
       appBar: AppBar(
+        leading: widget.onHome == null
+            ? null
+            : IconButton(
+                tooltip: 'Главное меню',
+                onPressed: widget.onHome,
+                icon: Icon(Icons.home_outlined),
+              ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'TIGER',
               style: TextStyle(
                 letterSpacing: 5,
@@ -384,25 +536,30 @@ class _EditorScreenState extends State<EditorScreen>
             ),
             Text(
               '${e.project.name}${e.dirty ? ' •' : ''}',
-              style: const TextStyle(fontSize: 12, color: Colors.white60),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
         actions: [
           if (!compact)
-            const Text(
+            Text(
               'Tiger Video Edit',
-              style: TextStyle(color: Colors.white54),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           IconButton(
             tooltip: 'Сохранить (Ctrl+S)',
             onPressed: locked ? null : () => e.guard(() => e.save()),
-            icon: const Icon(Icons.save_outlined),
+            icon: Icon(Icons.save_outlined),
           ),
           IconButton(
             tooltip: 'Настройки',
-            onPressed: locked ? null : settings,
-            icon: const Icon(Icons.tune),
+            onPressed: locked ? null : widget.onSettings ?? settings,
+            icon: Icon(Icons.tune),
           ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -417,6 +574,22 @@ class _EditorScreenState extends State<EditorScreen>
             enabled: !locked,
             onSelected: (v) {
               switch (v) {
+                case 'effects':
+                  showEffectLibrary(context, e);
+                case 'audioLayer':
+                  e.guard(e.importAudioLayer);
+                case 'visualLayer':
+                  e.addVisualLayer(e.selectedImage);
+                case 'sounds':
+                  widget.onSounds?.call();
+                case 'music':
+                  widget.onMusic?.call();
+                case 'templates':
+                  widget.onTemplates?.call();
+                case 'editingSettings':
+                  settings();
+                case 'autoedit':
+                  autoEdit();
                 case 'new':
                   newProject();
                 case 'open':
@@ -438,6 +611,41 @@ class _EditorScreenState extends State<EditorScreen>
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'audioLayer',
+                child: Text('Добавить аудиодорожку'),
+              ),
+              const PopupMenuItem(
+                value: 'visualLayer',
+                child: Text('Добавить медиа в отдельный слой'),
+              ),
+              const PopupMenuItem(
+                value: 'effects',
+                child: Text('Библиотека эффектов'),
+              ),
+              const PopupMenuItem(
+                value: 'autoedit',
+                child: Text('Auto Edit — стили'),
+              ),
+              if (widget.onSounds != null)
+                const PopupMenuItem(
+                  value: 'sounds',
+                  child: Text('Библиотека звуков'),
+                ),
+              if (widget.onMusic != null)
+                const PopupMenuItem(
+                  value: 'music',
+                  child: Text('Музыкальная библиотека'),
+                ),
+              if (widget.onTemplates != null)
+                const PopupMenuItem(
+                  value: 'templates',
+                  child: Text('Шаблоны эдитов'),
+                ),
+              const PopupMenuItem(
+                value: 'editingSettings',
+                child: Text('Настройки монтажа'),
+              ),
               const PopupMenuItem(value: 'new', child: Text('Новый проект')),
               const PopupMenuItem(value: 'open', child: Text('Открыть проект')),
               const PopupMenuItem(
@@ -465,7 +673,7 @@ class _EditorScreenState extends State<EditorScreen>
         children: [
           if (e.error != null)
             Material(
-              color: const Color(0xff492b2b),
+              color: Theme.of(context).colorScheme.errorContainer,
               child: Row(
                 children: [
                   const SizedBox(width: 12),
@@ -484,7 +692,7 @@ class _EditorScreenState extends State<EditorScreen>
                       e.error = null;
                       e.refresh();
                     },
-                    icon: const Icon(Icons.close),
+                    icon: Icon(Icons.close),
                   ),
                 ],
               ),
@@ -506,7 +714,7 @@ class _EditorScreenState extends State<EditorScreen>
                   ),
                   TextButton(
                     onPressed: e.exporter.cancel,
-                    child: const Text('Отменить'),
+                    child: Text('Отменить'),
                   ),
                 ],
               ),
@@ -522,13 +730,48 @@ class _EditorScreenState extends State<EditorScreen>
                   : Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SizedBox(width: 238, child: library()),
+                        SizedBox(
+                          width: e.libraryPanelWidth.clamp(
+                            180,
+                            MediaQuery.sizeOf(context).width * .28,
+                          ),
+                          child: library(),
+                        ),
+                        _panelDivider('Медиа', (dx) {
+                          e.libraryPanelWidth = (e.libraryPanelWidth + dx)
+                              .clamp(
+                                180,
+                                MediaQuery.sizeOf(context).width * .28,
+                              );
+                          e.refresh();
+                        }),
                         Expanded(child: preview()),
-                        SizedBox(width: 260, child: properties()),
+                        _panelDivider('Свойства', (dx) {
+                          e.propertiesPanelWidth = (e.propertiesPanelWidth - dx)
+                              .clamp(
+                                180,
+                                MediaQuery.sizeOf(context).width * .28,
+                              );
+                          e.refresh();
+                        }),
+                        SizedBox(
+                          width: e.propertiesPanelWidth.clamp(
+                            180,
+                            MediaQuery.sizeOf(context).width * .28,
+                          ),
+                          child: properties(),
+                        ),
                       ],
                     ),
             ),
           ),
+          if (e.project.audioClips.isNotEmpty ||
+              e.project.visualClips.isNotEmpty ||
+              e.project.globalEffects.isNotEmpty)
+            AbsorbPointer(
+              absorbing: locked,
+              child: TimelineTracks(editor: e),
+            ),
           AbsorbPointer(absorbing: locked, child: timeline(compact)),
         ],
       ),
@@ -566,11 +809,11 @@ class _EditorScreenState extends State<EditorScreen>
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, set) => AlertDialog(
-          title: const Text('Ритм и автосборка'),
+          title: Text('Ритм и автосборка'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
+              Text(
                 'Локальный поиск звуковых атак. Результат можно исправить маркерами; отмена вернёт прежнюю разметку.',
               ),
               const SizedBox(height: 16),
@@ -584,11 +827,11 @@ class _EditorScreenState extends State<EditorScreen>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Отмена'),
+              child: Text('Отмена'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Анализировать'),
+              child: Text('Анализировать'),
             ),
           ],
         ),
@@ -611,11 +854,11 @@ class _EditorScreenState extends State<EditorScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Оставить текущие'),
+            child: Text('Оставить текущие'),
           ),
           FilledButton(
             onPressed: count == 0 ? null : () => Navigator.pop(ctx, true),
-            child: const Text('Автосборка'),
+            child: Text('Автосборка'),
           ),
         ],
       ),
@@ -627,11 +870,33 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  Future<void> autoEdit() async {
+    if (e.project.audio == null || e.project.images.isEmpty) {
+      e.error = 'Добавьте музыку и медиа для автосборки';
+      e.refresh();
+      return;
+    }
+    final profile = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text('Стиль Auto Edit'),
+        children: [
+          for (final name in autoEditProfiles)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, name),
+              child: Text(name),
+            ),
+        ],
+      ),
+    );
+    if (profile != null) await e.guard(() => e.applyAutoEdit(profile));
+  }
+
   void showRecent() {
     showDialog<void>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Последние проекты'),
+        title: Text('Последние проекты'),
         children: [
           if (e.recent.isEmpty)
             const Padding(
@@ -655,15 +920,34 @@ class _EditorScreenState extends State<EditorScreen>
     padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
     child: Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontWeight: FontWeight.w600,
         fontSize: 13,
         letterSpacing: 1,
       ),
     ),
   );
+  Widget _panelDivider(String label, ValueChanged<double> move) => Semantics(
+    label: 'Ширина панели $label',
+    child: MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        key: ValueKey('resize-$label'),
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (d) => move(d.delta.dx),
+        onHorizontalDragEnd: (_) => e.guard(e.preferences),
+        child: SizedBox(
+          width: 6,
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+      ),
+    ),
+  );
+
   Widget library() => Material(
-    color: panel,
+    color: Theme.of(context).colorScheme.surface,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -676,11 +960,14 @@ class _EditorScreenState extends State<EditorScreen>
             () => e.guard(e.importImages),
           ),
         ),
-        const Padding(
+        Padding(
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(
             'Порядок = порядок смены\nПеретащите строку за ручку',
-            style: TextStyle(color: Colors.white38, fontSize: 11),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
           ),
         ),
         Expanded(
@@ -689,24 +976,27 @@ class _EditorScreenState extends State<EditorScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.photo_library_outlined,
                         size: 40,
-                        color: Colors.white24,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                       const SizedBox(height: 16),
-                      const Text(
+                      Text(
                         'Ваши кадры — ваш ритм',
-                        style: TextStyle(color: Colors.white54),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       TextButton(
                         onPressed: showRecent,
-                        child: const Text('Последние проекты'),
+                        child: Text('Последние проекты'),
                       ),
                     ],
                   ),
                 )
               : ReorderableListView.builder(
+                  buildDefaultDragHandles: false,
                   itemCount: e.project.images.length,
                   onReorderItem: (oldIndex, newIndex) => e.reorder(
                     oldIndex,
@@ -716,7 +1006,15 @@ class _EditorScreenState extends State<EditorScreen>
                     final s = e.project.images[i];
                     return ListTile(
                       key: ValueKey('$i:${s.path}'),
-                      selected: e.selectedImage == i,
+                      trailing: ReorderableDragStartListener(
+                        index: i,
+                        child: const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Icon(Icons.drag_handle, size: 20),
+                        ),
+                      ),
+                      selected:
+                          e.selectedImages.contains(i) || e.selectedImage == i,
                       selectedTileColor: accent.withValues(alpha: 0.08),
                       leading: ClipRRect(
                         borderRadius: BorderRadius.circular(6),
@@ -737,25 +1035,30 @@ class _EditorScreenState extends State<EditorScreen>
                                 fit: BoxFit.cover,
                                 cacheWidth: 128,
                                 errorBuilder: (_, err, stack) =>
-                                    const Icon(Icons.broken_image),
+                                    Icon(Icons.broken_image),
                               ),
                       ),
                       title: Text(
                         labelPath(s.path),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11),
+                        style: TextStyle(fontSize: 11),
                       ),
                       subtitle: Text(
                         '${i + 1}'.padLeft(2, '0'),
-                        style: const TextStyle(color: Colors.white38),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       onTap: () {
-                        e.selectedImage = i;
-                        e.inspectImage = true;
+                        e.selectImage(
+                          i,
+                          additive: HardwareKeyboard.instance.isControlPressed,
+                        );
                         e.selectedMarker = null;
                         e.refresh();
                       },
+                      onLongPress: () => e.selectImage(i, additive: true),
                     );
                   },
                 ),
@@ -770,8 +1073,8 @@ class _EditorScreenState extends State<EditorScreen>
               );
               e.change(e.project.copy(images: list));
             },
-            icon: const Icon(Icons.delete_outline, size: 16),
-            label: const Text('Удалить выбранное'),
+            icon: Icon(Icons.delete_outline, size: 16),
+            label: Text('Удалить выбранное'),
           ),
       ],
     ),
@@ -780,10 +1083,11 @@ class _EditorScreenState extends State<EditorScreen>
     final active = e.project.imageIndexAt(e.positionUs);
     final localFrame = math.max(
       0,
-      (e.positionUs - e.project.startUs) * fps ~/ 1000000 -
+      (e.positionUs - e.project.startUs) * e.project.frameRate ~/ 1000000 -
           (e.project.segmentAt(e.positionUs)?.startFrame ?? 0),
     );
-    final previewLocalUs = (localFrame * 1000000 + fps - 1) ~/ fps;
+    final previewLocalUs =
+        (localFrame * 1000000 + e.project.frameRate - 1) ~/ e.project.frameRate;
     final display = e.project.audio == null || (e.inspectImage && !e.playing)
         ? e.selectedImage
         : active;
@@ -796,13 +1100,17 @@ class _EditorScreenState extends State<EditorScreen>
         children: [
           Row(
             children: [
-              const Icon(Icons.crop_free, size: 14, color: Colors.white38),
+              Icon(
+                Icons.crop_free,
+                size: 14,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               const SizedBox(width: 8),
-              const Text(
+              Text(
                 'ПРЕДПРОСМОТР',
                 style: TextStyle(
                   fontSize: 11,
-                  color: Colors.white54,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   letterSpacing: 1.5,
                 ),
               ),
@@ -848,22 +1156,28 @@ class _EditorScreenState extends State<EditorScreen>
                                 still: still,
                                 project: e.project,
                                 sourceUs: e.positionUs,
+                                maxDimension:
+                                    switch (e.settings.previewQuality) {
+                                      PreviewQuality.low => 640,
+                                      PreviewQuality.medium => 1280,
+                                      PreviewQuality.high => 1920,
+                                    },
                                 localUs: e.inspectImage && !e.playing
                                     ? 0
                                     : previewLocalUs,
                               )
                             else
-                              const Center(
+                              Center(
                                 child: Text(
                                   'Добавьте музыку и изображения',
-                                  style: TextStyle(color: Colors.white38),
+                                  style: TextStyle(color: Colors.white60),
                                 ),
                               ),
                             if (e.countdownValue > 0)
                               Center(
                                 child: Text(
                                   '${e.countdownValue}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 96,
                                     color: accent,
                                     fontWeight: FontWeight.bold,
@@ -882,7 +1196,7 @@ class _EditorScreenState extends State<EditorScreen>
           const SizedBox(height: 14),
           Text(
             clockTime(e.positionUs),
-            style: const TextStyle(
+            style: TextStyle(
               fontFeatures: [ui.FontFeature.tabularFigures()],
               fontSize: 22,
             ),
@@ -896,7 +1210,7 @@ class _EditorScreenState extends State<EditorScreen>
                 onPressed: e.project.audio == null
                     ? null
                     : () => e.guard(() => e.seek(e.project.startUs)),
-                icon: const Icon(Icons.skip_previous),
+                icon: Icon(Icons.skip_previous),
               ),
               FilledButton(
                 onPressed: e.project.audio == null
@@ -910,15 +1224,18 @@ class _EditorScreenState extends State<EditorScreen>
               ),
               FilledButton.tonalIcon(
                 onPressed: e.playing ? () => e.guard(e.capture) : null,
-                icon: const Icon(Icons.flag_outlined),
+                icon: Icon(Icons.flag_outlined),
                 label: Text('Маркер ${e.markerKey}'),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Space — воспроизведение • два нажатия на шкале — маркер',
-            style: TextStyle(fontSize: 10, color: Colors.white38),
+            style: TextStyle(
+              fontSize: 10,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -961,18 +1278,18 @@ class _EditorScreenState extends State<EditorScreen>
     final still = e.selectedImage < e.project.images.length
         ? e.project.images[e.selectedImage]
         : null;
-    return ColoredBox(
-      color: panel,
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text(
+          Text(
             'СВОЙСТВА',
             style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 1),
           ),
           const SizedBox(height: 18),
           if (selected != null) ...[
-            const Text('Выбранный маркер', style: TextStyle(color: accent)),
+            Text('Выбранный маркер', style: TextStyle(color: accent)),
             number(
               'Позиция, миллисекунды',
               selected.timeUs / 1000,
@@ -986,14 +1303,14 @@ class _EditorScreenState extends State<EditorScreen>
                 e.selectedMarker = null;
                 e.refresh();
               },
-              child: const Text('Снять выбор'),
+              child: Text('Снять выбор'),
             ),
             const Divider(),
           ],
           if (still != null) ...[
             Text(
               'Изображение ${e.selectedImage + 1}',
-              style: const TextStyle(color: accent),
+              style: TextStyle(color: accent),
             ),
             const SizedBox(height: 8),
             SegmentedButton<bool>(
@@ -1029,16 +1346,21 @@ class _EditorScreenState extends State<EditorScreen>
               max: 2,
             ),
             TextButton(
-              onPressed: () => e.updateStill(Still(path: still.path)),
-              child: const Text('Сбросить положение'),
+              onPressed: () =>
+                  e.updateStill(still.copy(scale: 1, x: 0, y: 0, cover: true)),
+              child: Text('Сбросить положение'),
             ),
             const Divider(),
           ],
           V2Panel(editor: e),
           const Divider(),
-          const Text(
+          V3Panel(editor: e),
+          const Divider(),
+          Text(
             'Музыкальный отрывок',
-            style: TextStyle(color: Colors.white60),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           if (e.project.audio != null) ...[
             number(
@@ -1068,8 +1390,11 @@ class _EditorScreenState extends State<EditorScreen>
             ),
           ],
           Text(
-            '${e.project.width} × ${e.project.height}\n30 FPS • H.264 / AAC',
-            style: const TextStyle(fontSize: 12, color: Colors.white38),
+            '${e.project.width} × ${e.project.height}\n${e.project.frameRate} FPS • H.264 / AAC',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -1080,9 +1405,11 @@ class _EditorScreenState extends State<EditorScreen>
     final p = e.project;
     return Container(
       height: compact ? 210 : 240,
-      decoration: const BoxDecoration(
-        color: Color(0xff15181e),
-        border: Border(top: BorderSide(color: Color(0xff30343d))),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
       ),
       child: Column(
         children: [
@@ -1093,37 +1420,40 @@ class _EditorScreenState extends State<EditorScreen>
                 IconButton(
                   tooltip: 'Отменить',
                   onPressed: e.history.canUndo ? () => e.guard(e.undo) : null,
-                  icon: const Icon(Icons.undo, size: 18),
+                  icon: Icon(Icons.undo, size: 18),
                 ),
                 IconButton(
                   tooltip: 'Вернуть',
                   onPressed: e.history.canRedo ? () => e.guard(e.redo) : null,
-                  icon: const Icon(Icons.redo, size: 18),
+                  icon: Icon(Icons.redo, size: 18),
                 ),
                 Expanded(
                   child: Text(
                     labelPath(p.audio),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: 12),
                   ),
                 ),
                 IconButton(
                   tooltip: 'Ритм и автосборка',
                   onPressed: p.audio == null ? null : beats,
-                  icon: const Icon(Icons.auto_awesome, size: 20),
+                  icon: Icon(Icons.auto_awesome, size: 20),
                 ),
                 IconButton(
                   tooltip: 'Импорт музыки',
                   onPressed: () => e.guard(e.importAudio),
-                  icon: const Icon(Icons.audio_file_outlined, size: 20),
+                  icon: Icon(Icons.audio_file_outlined, size: 20),
                 ),
                 if (!compact)
                   Text(
                     '${p.markers.length} маркеров',
-                    style: const TextStyle(color: Colors.white38, fontSize: 11),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
                   ),
-                const Icon(Icons.zoom_in, size: 18),
+                Icon(Icons.zoom_in, size: 18),
                 SizedBox(
                   width: compact ? 90 : 150,
                   child: Slider(
@@ -1167,6 +1497,9 @@ class _EditorScreenState extends State<EditorScreen>
                                 e.peaks,
                                 e.positionUs,
                                 e.zoom,
+                                foreground: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface,
                               ),
                             ),
                           ),
@@ -1185,7 +1518,10 @@ class _EditorScreenState extends State<EditorScreen>
                                 },
                                 onMove: (dx) => e.moveMarker(
                                   m.id,
-                                  at(m.timeUs / duration * width + dx),
+                                  e.snapTime(
+                                    at(m.timeUs / duration * width + dx),
+                                    excludeMarkerId: m.id,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1201,16 +1537,22 @@ class _EditorScreenState extends State<EditorScreen>
             padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
             child: Row(
               children: [
-                const Icon(Icons.graphic_eq, size: 12, color: accent),
+                Icon(Icons.graphic_eq, size: 12, color: accent),
                 const SizedBox(width: 8),
                 Text(
                   '${clockTime(p.startUs)} — ${clockTime(p.endUs)}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 10),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 10,
+                  ),
                 ),
                 const Spacer(),
                 Text(
                   '${e.zoom.toStringAsFixed(1)}×',
-                  style: const TextStyle(color: Colors.white38, fontSize: 10),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 10,
+                  ),
                 ),
               ],
             ),
@@ -1224,13 +1566,14 @@ class _EditorScreenState extends State<EditorScreen>
 class StillView extends StatefulWidget {
   final Still still;
   final Project project;
-  final int localUs, sourceUs;
+  final int localUs, sourceUs, maxDimension;
   const StillView({
     super.key,
     required this.still,
     required this.project,
     this.localUs = 0,
     this.sourceUs = 0,
+    this.maxDimension = 1280,
   });
   @override
   State<StillView> createState() => _StillViewState();
@@ -1238,26 +1581,173 @@ class StillView extends StatefulWidget {
 
 class _StillViewState extends State<StillView> {
   ui.Image? image;
-  String? error;
+  String? error, compositionError;
   bool loading = false;
   int displayedFrame = -1;
   int displayedStart = -1;
   String? displayedPath;
-  final source = MediaFrameSource(maxDimension: 1920);
+  late MediaFrameSource source;
+  late MediaFrameSource _previousSource;
+  int _decoderEpoch = 0;
+  final _overlaySources = <String, MediaFrameSource>{};
+  ui.Image? _previousImage;
+  Still? _previousItem;
+  String _previousKey = '';
+  List<VisualFrame> _overlays = [];
+  bool _compositionLoading = false;
+  int _compositionFrame = -1;
+  Project? _compositionProject;
   @override
   void initState() {
     super.initState();
+    source = MediaFrameSource(maxDimension: widget.maxDimension);
+    _previousSource = MediaFrameSource(maxDimension: widget.maxDimension);
     load();
+    loadComposition();
   }
 
   @override
   void didUpdateWidget(StillView old) {
     super.didUpdateWidget(old);
-    if (old.still.path != widget.still.path ||
+    final qualityChanged = old.maxDimension != widget.maxDimension;
+    if (qualityChanged) {
+      _decoderEpoch++;
+      error = null;
+      compositionError = null;
+      unawaited(source.dispose());
+      unawaited(_previousSource.dispose());
+      for (final decoder in _overlaySources.values) {
+        unawaited(decoder.dispose());
+      }
+      _overlaySources.clear();
+      source = MediaFrameSource(maxDimension: widget.maxDimension);
+      _previousSource = MediaFrameSource(maxDimension: widget.maxDimension);
+      _previousKey = '';
+      _compositionProject = null;
+      _compositionFrame = -1;
+    }
+    if (qualityChanged ||
+        old.project.frameRate != widget.project.frameRate ||
+        old.still.path != widget.still.path ||
         old.still.sourceStartUs != widget.still.sourceStartUs ||
         (widget.still.kind != 'image' &&
-            old.localUs * fps ~/ 1000000 != widget.localUs * fps ~/ 1000000)) {
+            old.localUs * old.project.frameRate ~/ 1000000 !=
+                widget.localUs * widget.project.frameRate ~/ 1000000)) {
       load();
+    }
+    loadComposition();
+  }
+
+  Future<void> loadComposition() async {
+    final p = widget.project, epoch = _decoderEpoch;
+    final frame = math.max(
+      0,
+      (widget.sourceUs - p.startUs) * p.frameRate ~/ 1000000,
+    );
+    final time = p.startUs + (frame * 1000000 + p.frameRate - 1) ~/ p.frameRate;
+    if (_compositionLoading ||
+        (_compositionFrame == frame && identical(_compositionProject, p))) {
+      return;
+    }
+    _compositionLoading = true;
+    final previousSource = _previousSource, frames = <VisualFrame>[];
+    ui.Image? nextPrevious;
+    Still? nextPreviousItem;
+    var nextKey = '';
+    var ownsPrevious = false, committed = false;
+    try {
+      final schedule = p.segments;
+      final current = schedule.lastIndexWhere((s) => s.startFrame <= frame);
+      final needPrevious =
+          widget.still.effectStack.any(
+            (e) => ['crossfade', 'slide', 'wipe'].contains(e.type),
+          ) ||
+          p.globalEffects.any(
+            (l) => l.effects.any(
+              (e) => ['crossfade', 'slide', 'wipe'].contains(e.type),
+            ),
+          );
+      if (needPrevious && current > 0) {
+        final prev = schedule[current - 1], item = p.images[prev.imageIndex];
+        nextKey = [item.path, item.sourceStartUs, prev.startFrame].join(':');
+        nextPreviousItem = item;
+        if (nextKey == _previousKey) {
+          nextPrevious = _previousImage;
+        } else {
+          nextPrevious = await previousSource.frame(
+            item,
+            (prev.frameCount - 1) * 1000000 ~/ p.frameRate,
+          );
+          ownsPrevious = true;
+        }
+      }
+      if (!mounted || epoch != _decoderEpoch) return;
+      final active = p.visualClips.where((c) => c.activeAt(time)).toList()
+        ..sort((a, b) => a.track.compareTo(b.track));
+      for (final clip in active) {
+        if (epoch != _decoderEpoch) return;
+        final decoder = _overlaySources.putIfAbsent(
+          clip.id,
+          () => MediaFrameSource(maxDimension: widget.maxDimension),
+        );
+        final decoded = await decoder.frame(clip.media, time - clip.startUs);
+        frames.add(
+          VisualFrame(clip.media, decoded, time - clip.startUs, clip.opacity),
+        );
+      }
+      if (!mounted || epoch != _decoderEpoch || !identical(widget.project, p)) {
+        return;
+      }
+      final oldFrames = _overlays, oldPrevious = _previousImage;
+      setState(() {
+        _previousImage = nextPrevious;
+        _previousItem = nextPreviousItem;
+        _previousKey = nextKey;
+        _overlays = frames;
+        _compositionFrame = frame;
+        _compositionProject = p;
+        compositionError = null;
+      });
+      committed = true;
+      if (oldPrevious != nextPrevious) oldPrevious?.dispose();
+      for (final f in oldFrames) {
+        f.image.dispose();
+      }
+      for (final id
+          in _overlaySources.keys
+              .where((id) => !active.any((c) => c.id == id))
+              .toList()) {
+        await _overlaySources.remove(id)!.dispose();
+      }
+    } catch (err) {
+      if (mounted && epoch == _decoderEpoch && identical(widget.project, p)) {
+        setState(() => compositionError = 'Слой: $err');
+      }
+    } finally {
+      if (!committed) {
+        for (final f in frames) {
+          f.image.dispose();
+        }
+        if (ownsPrevious) nextPrevious?.dispose();
+      }
+      _compositionLoading = false;
+      if (mounted) {
+        final latest = widget.project,
+            latestFrame = math.max(
+              0,
+              (widget.sourceUs - widget.project.startUs) *
+                  widget.project.frameRate ~/
+                  1000000,
+            );
+        if ((_compositionFrame != latestFrame ||
+                !identical(_compositionProject, latest)) &&
+            (compositionError == null ||
+                epoch != _decoderEpoch ||
+                !identical(latest, p) ||
+                latestFrame != frame)) {
+          unawaited(loadComposition());
+        }
+      }
     }
   }
 
@@ -1279,12 +1769,16 @@ class _StillViewState extends State<StillView> {
 
   Future<void> loadAsync() async {
     loading = true;
+    final epoch = _decoderEpoch,
+        decoder = source,
+        frameRate = widget.project.frameRate;
     final item = widget.still, time = widget.localUs;
     try {
       final decoded = item.kind == 'image'
           ? (await previewImages.load(item.path)).clone()
-          : await source.frame(item, time);
+          : await decoder.frame(item, time);
       if (!mounted ||
+          epoch != _decoderEpoch ||
           widget.still.path != item.path ||
           widget.still.sourceStartUs != item.sourceStartUs) {
         decoded.dispose();
@@ -1295,12 +1789,13 @@ class _StillViewState extends State<StillView> {
         image = decoded;
         displayedPath = item.path;
         displayedStart = item.sourceStartUs;
-        displayedFrame = time * fps ~/ 1000000;
+        displayedFrame = time * frameRate ~/ 1000000;
         error = null;
       });
       old?.dispose();
     } catch (e) {
       if (mounted &&
+          epoch == _decoderEpoch &&
           widget.still.path == item.path &&
           widget.still.sourceStartUs == item.sourceStartUs) {
         setState(() => error = e.toString());
@@ -1308,10 +1803,12 @@ class _StillViewState extends State<StillView> {
     } finally {
       loading = false;
       if (mounted &&
-          (widget.still.path != item.path ||
+          (epoch != _decoderEpoch ||
+              widget.still.path != item.path ||
               widget.still.sourceStartUs != item.sourceStartUs ||
               (widget.still.kind != 'image' &&
-                  displayedFrame != widget.localUs * fps ~/ 1000000 &&
+                  displayedFrame !=
+                      widget.localUs * widget.project.frameRate ~/ 1000000 &&
                   error == null))) {
         load();
       }
@@ -1322,15 +1819,26 @@ class _StillViewState extends State<StillView> {
   void dispose() {
     image?.dispose();
     source.dispose();
+    _previousImage?.dispose();
+    _previousSource.dispose();
+    for (final frame in _overlays) {
+      frame.image.dispose();
+    }
+    for (final decoder in _overlaySources.values) {
+      decoder.dispose();
+    }
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => error != null
+  Widget build(BuildContext context) => (error ?? compositionError) != null
       ? Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('Медиа недоступно: $error', maxLines: 5),
+            child: Text(
+              'Медиа недоступно: ${error ?? compositionError}',
+              maxLines: 5,
+            ),
           ),
         )
       : image == null ||
@@ -1344,6 +1852,9 @@ class _StillViewState extends State<StillView> {
             widget.project,
             widget.localUs,
             widget.sourceUs,
+            previousImage: _previousImage,
+            previousItem: _previousItem,
+            overlays: _overlays,
           ),
         );
 }
@@ -1353,13 +1864,19 @@ class StillPainter extends CustomPainter {
   final Still still;
   final Project project;
   final int localUs, sourceUs;
+  final ui.Image? previousImage;
+  final Still? previousItem;
+  final List<VisualFrame> overlays;
   StillPainter(
     this.image,
     this.still,
     this.project,
     this.localUs,
-    this.sourceUs,
-  );
+    this.sourceUs, {
+    this.previousImage,
+    this.previousItem,
+    this.overlays = const [],
+  });
   @override
   void paint(Canvas canvas, Size size) => paintFrame(
     canvas,
@@ -1369,9 +1886,15 @@ class StillPainter extends CustomPainter {
     localUs: localUs,
     sourceUs:
         project.startUs +
-        ((sourceUs - project.startUs) * fps ~/ 1000000) * 1000000 ~/ fps,
+        ((sourceUs - project.startUs) * project.frameRate ~/ 1000000) *
+            1000000 ~/
+            project.frameRate,
     captions: project.captions,
     referenceWidth: project.width.toDouble(),
+    project: project,
+    previousImage: previousImage,
+    previousItem: previousItem,
+    overlays: overlays,
   );
   @override
   bool shouldRepaint(StillPainter old) =>
@@ -1379,7 +1902,10 @@ class StillPainter extends CustomPainter {
       old.still != still ||
       old.localUs != localUs ||
       old.sourceUs != sourceUs ||
-      old.project != project;
+      old.project != project ||
+      old.previousImage != previousImage ||
+      old.previousItem != previousItem ||
+      !listEquals(old.overlays, overlays);
 }
 
 class MarkerHandle extends StatefulWidget {
@@ -1420,7 +1946,9 @@ class _MarkerHandleState extends State<MarkerHandle> {
             Icon(
               Icons.flag,
               size: 20,
-              color: widget.selected ? Colors.white : accent,
+              color: widget.selected
+                  ? Theme.of(context).colorScheme.onSurface
+                  : Theme.of(context).colorScheme.primary,
             ),
             Expanded(
               child: Container(width: widget.selected ? 3 : 1, color: accent),
@@ -1437,7 +1965,14 @@ class TimelinePainter extends CustomPainter {
   final List<double> peaks;
   final int position;
   final double zoom;
-  TimelinePainter(this.p, this.peaks, this.position, this.zoom);
+  final Color foreground;
+  TimelinePainter(
+    this.p,
+    this.peaks,
+    this.position,
+    this.zoom, {
+    this.foreground = Colors.white,
+  });
   @override
   void paint(Canvas canvas, Size size) {
     final duration = math.max(1, p.durationUs);
@@ -1457,12 +1992,15 @@ class TimelinePainter extends CustomPainter {
       canvas.drawLine(
         Offset(px, 22),
         Offset(px, size.height),
-        pen..color = Colors.white10,
+        pen..color = foreground.withValues(alpha: .1),
       );
       final text = TextPainter(
         text: TextSpan(
           text: clockTime(s * 1000000).substring(0, 5),
-          style: const TextStyle(fontSize: 10, color: Colors.white38),
+          style: TextStyle(
+            fontSize: 10,
+            color: foreground.withValues(alpha: .6),
+          ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
@@ -1483,9 +2021,12 @@ class TimelinePainter extends CustomPainter {
       }
     }
     for (final s in p.segments) {
-      final start = x(p.startUs + (s.startFrame * 1000000 / fps).round());
+      final start = x(
+        p.startUs + (s.startFrame * 1000000 / p.frameRate).round(),
+      );
       final end = x(
-        p.startUs + ((s.startFrame + s.frameCount) * 1000000 / fps).round(),
+        p.startUs +
+            ((s.startFrame + s.frameCount) * 1000000 / p.frameRate).round(),
       );
       canvas.drawRect(
         Rect.fromLTRB(start, 25, end, 33),
@@ -1499,7 +2040,7 @@ class TimelinePainter extends CustomPainter {
       Offset(x(position), size.height),
       pen
         ..strokeWidth = 2
-        ..color = Colors.white,
+        ..color = foreground,
     );
   }
 

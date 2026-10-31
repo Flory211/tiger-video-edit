@@ -3,6 +3,8 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
+#include <flutter/encodable_value.h>
 
 #include <memory>
 
@@ -23,6 +25,15 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  struct CloseState {
+    HWND window = nullptr;
+    bool alive = true;
+    bool pending = false;
+    bool confirmed = false;
+  };
+  std::shared_ptr<CloseState> close_state_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> window_channel_;
+
   // The project to run.
   flutter::DartProject project_;
 
