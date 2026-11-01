@@ -1,6 +1,6 @@
 # Third-party components and reproducible source references
 
-The existing LICENSE contains GPLv3 text inherited from version 2.0 and is preserved unchanged. No new license has been selected for publication; owner confirmation and exact native distribution/source review are required before the first public upload. No public distribution has been performed.
+The existing LICENSE contains GPLv3 text inherited from version 2.0 and is preserved unchanged. On 2026-11-01 the owner confirmed public application-source publication with this GPLv3 license. Binary distribution still requires exact native distribution/corresponding-source review and separate release approval; no production binary release is claimed.
 
 | Component | Pinned version | License / source |
 |---|---|---|

@@ -1,5 +1,9 @@
 # Publication review — 2026-10-31
 
+## Owner authorization — 2026-11-01
+
+The owner explicitly confirmed public source publication to `GushinetsN/tiger-video-edit` with the existing GPLv3 license in this chat. This approval covers the reviewed application source/history and documentation. It does not approve a binary release, assert native corresponding-source compliance, production signing, Android acceptance or successful GitHub runners. Earlier pending-approval statements below describe the pre-authorization checkpoint. Official CLI browser authentication is the next prerequisite; credentials are not requested in chat.
+
 ## Final local candidate — 2026-11-01
 
 Application binaries are built from commit `7d22cb4` on `feature/tiger-3.0`, preserving baseline `6f1e510`. Final documentation/notices are committed separately. Fresh Windows Release/Setup and ARM64 debug APK builds succeeded; the obsolete pre-v3 packaging smoke described below is historical evidence only. Final v3 installation/clean-machine acceptance is still pending. Exact current artifacts are recorded in local ignored `dist/V3_ARTIFACTS.json` and `dist/SHA256SUMS`.
