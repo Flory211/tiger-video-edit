@@ -71,7 +71,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       UpdateService(
         owner: const String.fromEnvironment(
           'TVE_GITHUB_OWNER',
-          defaultValue: 'GushinetsN',
+          defaultValue: 'Flory211',
         ),
         repository: const String.fromEnvironment(
           'TVE_GITHUB_REPO',

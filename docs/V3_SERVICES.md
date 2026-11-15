@@ -172,7 +172,7 @@ cannot replace the current project. Home offers Save/Keep unsaved/Cancel because
 the project remains mounted. Android Back from editing goes home; from the
 dashboard it checks unsaved work before asking the system to close the app.
 
-The shell uses the connected, verified publisher profile `GushinetsN` and planned
+The shell uses the connected, verified publisher profile `Flory211` and planned
 repository `tiger-video-edit`, still overridable via `TVE_GITHUB_OWNER/REPO`.
 No repository/release was published by these services. Until a real public
 release with compatible hashed assets exists, a 404 is shown as an unavailable

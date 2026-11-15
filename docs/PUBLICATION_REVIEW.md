@@ -1,5 +1,9 @@
 # Publication review — 2026-10-31
 
+## Corrected destination — 2026-11-15
+
+The owner clarified that the publishing account is `Flory211`; the approved source destination is now `Flory211/tiger-video-edit`, with the same GPLv3 scope. The previously connected `GushinetsN` account was incorrectly assumed to be the destination. No source had been uploaded and no remote had been configured. Earlier account references below are historical. CLI authentication must be verified as `Flory211` before any repository creation or push. The application update owner and current documentation links were corrected accordingly; existing pre-correction local binaries retain the old default owner until rebuilt.
+
 ## Owner authorization — 2026-11-01
 
 The owner explicitly confirmed public source publication to `GushinetsN/tiger-video-edit` with the existing GPLv3 license in this chat. This approval covers the reviewed application source/history and documentation. It does not approve a binary release, assert native corresponding-source compliance, production signing, Android acceptance or successful GitHub runners. Earlier pending-approval statements below describe the pre-authorization checkpoint. Official CLI browser authentication is the next prerequisite; credentials are not requested in chat.
