@@ -4,6 +4,7 @@
 
 - First Windows GitHub Actions builds passed with verified installer checksums. Android CI now installs FFmpeg without optional recommended desktop/speech packages, bounds network retries/timeouts, and separates SDK/FFmpeg/fixture steps after the first preparation run stalled on package downloads.
 - Corrected the native window-close widget test to assert that the WM_CLOSE channel is absent on non-Windows hosts, while retaining dirty-project/reentrancy/busy-operation checks on Windows. The first Ubuntu test run exposed this platform assumption (120 passed, one failed); application close behavior is unchanged.
+- Verified the corrected commit in real Windows and Android GitHub Actions: 121 tests passed and clean analysis on both; final installer/APK built, downloaded and checksum-verified. Android output remains explicitly TEST-debug.
 
 - Audited the existing Flutter application; preserved the verified 2.0 baseline in Git.
 - Implemented .tve schema 3 with v1/v2 migration, ordered/local/global effects, keyframes and 8 curves, 29 recipes over 16 Canvas primitives.

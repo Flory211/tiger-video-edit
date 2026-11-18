@@ -2,6 +2,15 @@
 
 ## First GitHub runner verification — 2026-11-18
 
+Final corrected commit `ac5162d7b0d0c44165574367e0e4b626c68d7980` passed both [Windows run 44259468153](https://github.com/Flory211/tiger-video-edit/actions/runs/44259468153) and [Android run 44259420515](https://github.com/Flory211/tiger-video-edit/actions/runs/44259420515). Each runner reports **121 tests passed** and **No issues found**. Windows created/verified the runtime payload and Inno installer. Android built a TEST-debug ARM64 APK, checked ZIP/ABI contents and verified APK v2 signing. Both complete artifacts were downloaded into ignored `.tools/ci-verified-*` directories and their SHA256SUMS verified successfully; the downloaded APK also passed independent ZIP/ARM64-only checks.
+
+| Final CI artifact | Bytes | SHA256 |
+|---|---:|---|
+| Windows x64 Setup | 111,314,249 | `1c2c175fec5214e2f1a2df29dab85cdc902fe6feb0910744f662b7ab4b36ae03` |
+| Android ARM64 TEST-debug APK | 93,453,921 | `52dc0c89b658fe61353cd574f6499cefaba6ccafb4edcf74420677802b992ff0` |
+
+The earlier failed/cancelled runs below are historical; both final runner results are green. Actions reported deprecation warnings for some action runtime versions, but no remaining build/test failure. Physical-device acceptance, production signing and a public binary Release remain separate.
+
 Windows main run [44255815184](https://github.com/Flory211/tiger-video-edit/actions/runs/44255815184) and feature run [44255816623](https://github.com/Flory211/tiger-video-edit/actions/runs/44255816623) completed successfully at application commit `e55c2b7`. The main `windows-package` artifact was downloaded locally and `release_integrity.py verify` passed. Installer size: 111,324,707 bytes; SHA256 `d58851132e688e7ce7568df1bc5903a7ae61cb48883c4bd5752be5090ac404cf`. Runner logs confirm clean analysis, Windows native payload verification and successful Inno packaging. This is an unsigned CI installer, not clean-machine installation acceptance or an approved public binary release.
 
 The first Android runs spent more than 15 minutes in FFmpeg installation, including optional desktop drivers and a 27.4 MB speech model; they were cancelled before application tests. Commit `6442707` removes recommended packages, adds bounded network retries/timeouts and splits SDK/FFmpeg/fixture steps. Replacement Android run [44257702425](https://github.com/Flory211/tiger-video-edit/actions/runs/44257702425) passed preparation/analysis, then exposed one Windows-only test assumption on Ubuntu (120 tests passed, one failed). The test now asserts no native WM_CLOSE channel outside Windows and retains all Windows dirty/reentrant/busy checks. Its complete seven-test file passed locally on Windows after correction; a fresh Linux CI run remains the required confirmation.

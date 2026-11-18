@@ -1,5 +1,7 @@
 # Tiger Video Edit 3.0.0+3004 — local release candidate
 
+Final CI check 2026-11-18: **Windows and Android GitHub Actions both passed at `ac5162d`**, with 121/121 tests and clean analysis on each runner. Windows Setup and ARM64 TEST-debug APK were created; both downloaded artifact manifests verified. A Windows-only native-close test assumption on Linux was corrected without changing application behavior; FFmpeg CI setup now excludes optional recommended packages and bounds network waits. Evidence, exact hashes and runner links: [docs/CI_RELEASE.md](docs/CI_RELEASE.md). No production binary Release or physical-device acceptance is implied.
+
 Update 2026-11-18: approved GPLv3 application source and Git history are now public at https://github.com/Flory211/tiger-video-edit (`main` and `feature/tiger-3.0`, source commit `e55c2b7`). Windows/Android GitHub Actions started automatically; final results are recorded in the Actions UI. No public binary Release was created. The source update owner was corrected to Flory211; the earlier local installer/APK were built before that correction and retain the old default update owner until rebuilt. Historical publication-pending statements below are superseded for source publication only.
 
 Branch: `feature/tiger-3.0`, baseline commit `6f1e510`. The existing v2 application/data and LICENSE were preserved; no public repository or release was created. Read docs/V3_IMPLEMENTATION_PLAN.md and docs/V3_COVERAGE.md for the full migration scope.
