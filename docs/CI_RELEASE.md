@@ -1,5 +1,16 @@
 # CI and release operations
 
+## Jamendo build 3005 — 2026-11-18
+
+Final [Windows CI 44279901496](https://github.com/Flory211/tiger-video-edit/actions/runs/44279901496) passed at `736e004`; final [Android CI 44281803370](https://github.com/Flory211/tiger-video-edit/actions/runs/44281803370) passed at `b7e2381`. The latter changes only CI/documentation; application and test sources are identical. Both runners recorded **136 passed tests** and clean analysis. Both artifact sets were downloaded and their checksum manifests verified locally. Android CI additionally verified APK ZIP/ARM64-only contents and APK v2 signing.
+
+| Public CI artifact (no embedded Jamendo Client ID) | Bytes | SHA256 |
+|---|---:|---|
+| Windows x64 Setup | 111,355,491 | `bdd2476c3e3920813e76d9896ce5b88f2c3aa222d6bea569a0f2a382a19271b9` |
+| Android ARM64 TEST-debug APK | 93,504,405 | `e3f7f96433587338061fc7928fec9cadeb0d5a2ed030d7df24d7b5f9ca4855d3` |
+
+An earlier Android attempt timed out during Ubuntu package downloads, before application checks. Selecting the official Ubuntu archive in the runner mirror list reduced FFmpeg preparation from the ten-minute timeout to under a minute, retaining APT signature verification. Windows packaging and the actual local native Jamendo UI playback test passed. Private local Windows/APK candidates with the local Client ID are recorded separately in DEVELOPMENT_STATUS.md and ignored `dist/jamendo-preview/BUILD_INFO.json`; they differ from public CI artifacts. Jamendo editing/export permission remains disabled and Android device playback unverified. No public binary Release was created.
+
 ## First GitHub runner verification — 2026-11-18
 
 Final corrected commit `ac5162d7b0d0c44165574367e0e4b626c68d7980` passed both [Windows run 44259468153](https://github.com/Flory211/tiger-video-edit/actions/runs/44259468153) and [Android run 44259420515](https://github.com/Flory211/tiger-video-edit/actions/runs/44259420515). Each runner reports **121 tests passed** and **No issues found**. Windows created/verified the runtime payload and Inno installer. Android built a TEST-debug ARM64 APK, checked ZIP/ABI contents and verified APK v2 signing. Both complete artifacts were downloaded into ignored `.tools/ci-verified-*` directories and their SHA256SUMS verified successfully; the downloaded APK also passed independent ZIP/ARM64-only checks.
