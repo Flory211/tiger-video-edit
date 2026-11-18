@@ -562,7 +562,10 @@ class Editor extends ChangeNotifier {
     await useAudioPath(picked.path);
   }
 
-  Future<void> useAudioPath(String sourcePath) async {
+  Future<void> useAudioPath(
+    String sourcePath, {
+    String musicCredit = '',
+  }) async {
     await stop();
     busy = true;
     notifyListeners();
@@ -572,6 +575,7 @@ class Editor extends ChangeNotifier {
       change(
         project.copy(
           audio: path,
+          musicCredit: musicCredit,
           durationUs: duration,
           startUs: 0,
           endUs: duration,

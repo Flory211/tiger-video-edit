@@ -224,13 +224,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           previewVolume: editor.settings.previewVolume,
           onUse: (track) async {
             if (!_mayReplace()) throw StateError('Редактор занят');
-            await editor.useAudioPath(track.path);
+            await editor.useAudioPath(
+              track.path,
+              musicCredit: track.license.attribution,
+            );
             if (mounted) {
               setState(() {
                 editorVisible = true;
                 sessionStarted = true;
               });
-              Navigator.of(context).pop();
+              Navigator.of(context).popUntil((route) => route.isFirst);
             }
           },
         ),

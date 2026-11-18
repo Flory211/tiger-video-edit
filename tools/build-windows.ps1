@@ -1,4 +1,4 @@
-param([string]$FfmpegBin=$env:FFMPEG_BIN, [string]$InnoIscc=$env:INNO_ISCC, [switch]$SkipChecks, [switch]$Offline)
+param([string]$FfmpegBin=$env:FFMPEG_BIN, [string]$InnoIscc=$env:INNO_ISCC, [switch]$SkipChecks, [switch]$Offline, [string]$DartDefineFile, [string]$InstallerOutputDirectory='dist')
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $taskRoot
@@ -13,7 +13,9 @@ if($LASTEXITCODE -ne 0){throw 'Tests failed'}
 & $taskFlutter analyze
 if($LASTEXITCODE -ne 0){throw 'Analysis failed'}
 }
-& $taskFlutter build windows --release --no-pub
+$taskBuildArguments=@('build','windows','--release','--no-pub')
+if($DartDefineFile){$taskBuildArguments+="--dart-define-from-file=$DartDefineFile"}
+& $taskFlutter @taskBuildArguments
 if($LASTEXITCODE -ne 0){throw 'Windows build failed'}
 $taskRelease=Join-Path $taskRoot 'build\windows\x64\runner\Release'
 $taskTools=Join-Path $taskRelease 'tools'
@@ -32,8 +34,10 @@ Get-ChildItem -LiteralPath (Split-Path -Parent $FfmpegBin) -File | Where-Object 
 & (Join-Path $PSScriptRoot 'verify-windows-payload.ps1') -Directory $taskRelease
 $taskVersion=(Select-String -LiteralPath 'pubspec.yaml' -Pattern '^version: (\d+\.\d+\.\d+)').Matches.Groups[1].Value
 if(!$taskVersion){throw 'Missing semantic app version'}
-& $InnoIscc "/DAppVersion=$taskVersion" (Join-Path $taskRoot 'installer/windows.iss')
+$taskInstallerOutput=[IO.Path]::GetFullPath((Join-Path $taskRoot $InstallerOutputDirectory))
+New-Item -ItemType Directory -Force -Path $taskInstallerOutput | Out-Null
+& $InnoIscc "/DAppVersion=$taskVersion" "/O$taskInstallerOutput" (Join-Path $taskRoot 'installer/windows.iss')
 if($LASTEXITCODE -ne 0){throw 'Installer compilation failed'}
-if(!(Test-Path -LiteralPath "dist/TigerVideoEdit-$taskVersion-Windows-x64-Setup.exe")){throw 'Installer output missing'}
+if(!(Test-Path -LiteralPath (Join-Path $taskInstallerOutput "TigerVideoEdit-$taskVersion-Windows-x64-Setup.exe"))){throw 'Installer output missing'}
 
 

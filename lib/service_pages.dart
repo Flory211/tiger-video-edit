@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app_settings.dart';
 import 'music_library.dart';
+import 'jamendo_page.dart';
 import 'sound_library.dart';
 import 'update_service.dart';
 
@@ -427,7 +428,35 @@ class _MusicLibraryPageState extends State<MusicLibraryPage>
             .toList()
           ..sort();
     return Scaffold(
-      appBar: AppBar(title: const Text('Музыка')),
+      appBar: AppBar(
+        title: const Text('Музыка'),
+        actions: [
+          TextButton.icon(
+            onPressed: importing
+                ? null
+                : () async {
+                    await stopPreview();
+                    if (!context.mounted) return;
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => JamendoMusicPage(
+                          configFile: File(
+                            '${widget.library.root.path}/jamendo-settings.json',
+                          ),
+                          workingDirectory: Directory(
+                            '${widget.library.root.path}/jamendo-work',
+                          ),
+                          volume: widget.previewVolume,
+                          onUse: widget.onUse,
+                        ),
+                      ),
+                    );
+                  },
+            icon: const Icon(Icons.public),
+            label: const Text('Онлайн'),
+          ),
+        ],
+      ),
       body: _pageBody(
         Column(
           children: [
@@ -435,7 +464,9 @@ class _MusicLibraryPageState extends State<MusicLibraryPage>
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  const Text(MusicSources.jamendoUnavailableReasonRu),
+                  const Text(
+                    'Локальная музыка доступна офлайн. Поиск и прослушивание Jamendo — в разделе «Онлайн».',
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     decoration: const InputDecoration(

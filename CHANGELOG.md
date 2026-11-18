@@ -2,6 +2,8 @@
 
 ## 3.0.0 — in development
 
+- Build 3005 adds real Jamendo search/genres/pagination, stream preview, metadata-only favorites/history, local connection settings and licence/source/attribution display. No Client Secret or embedded public source credential. Gated editing preparation rechecks rights, stages/cancels downloads and passes attribution into .tve/export UI; Jamendo editing/export application permission remains unconfirmed and disabled.
+
 - First Windows GitHub Actions builds passed with verified installer checksums. Android CI now installs FFmpeg without optional recommended desktop/speech packages, bounds network retries/timeouts, and separates SDK/FFmpeg/fixture steps after the first preparation run stalled on package downloads.
 - Corrected the native window-close widget test to assert that the WM_CLOSE channel is absent on non-Windows hosts, while retaining dirty-project/reentrancy/busy-operation checks on Windows. The first Ubuntu test run exposed this platform assumption (120 passed, one failed); application close behavior is unchanged.
 - Verified the corrected commit in real Windows and Android GitHub Actions: 121 tests passed and clean analysis on both; final installer/APK built, downloaded and checksum-verified. Android output remains explicitly TEST-debug.

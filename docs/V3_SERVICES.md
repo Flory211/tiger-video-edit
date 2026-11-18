@@ -1,5 +1,7 @@
 # V3 local services and update safety
 
+Update 2026-11-18, build 3005: a real Jamendo search/streaming provider and online Music route now exist. Client ID is local configuration; no Client Secret is used or committed. Older provider-unavailable statements below describe the earlier v3 checkpoint. The editing/export application-permission gate remains closed; artist download permission and track licence are checked separately. See [JAMENDO_GUIDE_RU.md](JAMENDO_GUIDE_RU.md) and the dedicated provider/widget/native tests.
+
 These services use Dart IO and the already installed `crypto` package (now an
 explicit dependency). They never execute an installer or require the end user's
 GitHub account. Application support paths should come from the existing

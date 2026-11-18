@@ -498,6 +498,39 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> export() async {
+    if (e.project.musicCredit.isNotEmpty) {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Авторство музыки'),
+          content: SingleChildScrollView(
+            child: SelectableText(
+              '${e.project.musicCredit}\n\nИзменения: музыка использована в видеомонтаже.\n\nСохрани эти сведения в описании опубликованного видео или в титрах согласно лицензии.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Clipboard.setData(
+                ClipboardData(
+                  text:
+                      '${e.project.musicCredit}\nИзменения: музыка использована в видеомонтаже.',
+                ),
+              ),
+              child: const Text('Копировать'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Экспортировать'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true || !mounted) return;
+    }
     await e.guard(e.exportVideo);
     if (mounted && e.progress == 1) {
       ScaffoldMessenger.of(context).showSnackBar(

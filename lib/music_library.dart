@@ -104,6 +104,31 @@ class OnlineMusicTrack {
       license.permitsEditorDownload &&
       downloadUrl?.scheme == 'https' &&
       downloadUrl?.userInfo == '';
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'artist': artist,
+    'genre': genre,
+    'durationMs': duration.inMilliseconds,
+    'license': license.toJson(),
+    'previewUrl': previewUrl?.toString(),
+    'downloadUrl': downloadUrl?.toString(),
+    'sourceUrl': sourceUrl?.toString(),
+  };
+  factory OnlineMusicTrack.fromJson(Map<String, dynamic> j) => OnlineMusicTrack(
+    id: j['id'] as String,
+    title: j['title'] as String,
+    artist: j['artist'] as String,
+    genre: j['genre'] as String? ?? '',
+    duration: Duration(milliseconds: j['durationMs'] as int),
+    license: MusicLicense.fromJson(
+      Map<String, dynamic>.from(j['license'] as Map),
+    ),
+    previewUrl: Uri.tryParse(j['previewUrl'] as String? ?? ''),
+    downloadUrl: Uri.tryParse(j['downloadUrl'] as String? ?? ''),
+    sourceUrl: Uri.tryParse(j['sourceUrl'] as String? ?? ''),
+  );
 }
 
 /// Implementations must have a documented application agreement and must not

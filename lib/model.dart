@@ -270,6 +270,7 @@ class Project {
   };
   final String name;
   final String? audio;
+  final String musicCredit;
   final int durationUs, startUs, endUs;
   final bool portrait;
   final List<Still> images;
@@ -284,6 +285,7 @@ class Project {
   Project({
     this.name = 'Новый проект',
     this.audio,
+    this.musicCredit = '',
     this.durationUs = 0,
     this.startUs = 0,
     this.endUs = 0,
@@ -312,6 +314,7 @@ class Project {
   Project copy({
     String? name,
     String? audio,
+    String? musicCredit,
     int? durationUs,
     int? startUs,
     int? endUs,
@@ -331,6 +334,7 @@ class Project {
   }) => Project(
     name: name ?? this.name,
     audio: audio ?? this.audio,
+    musicCredit: musicCredit ?? this.musicCredit,
     durationUs: durationUs ?? this.durationUs,
     startUs: startUs ?? this.startUs,
     endUs: endUs ?? this.endUs,
@@ -485,6 +489,7 @@ class Project {
       }
     }
     if (name.length > 300 ||
+        musicCredit.length > 8192 ||
         durationUs < 0 ||
         startUs < 0 ||
         endUs > durationUs ||
@@ -573,6 +578,7 @@ class Project {
 
   Map<String, dynamic> toJson() => {
     'version': 3,
+    'musicCredit': musicCredit,
     'globalEffectsEnabled': globalEffectsEnabled,
     'audioClips': audioClips.map((c) => c.toJson()).toList(),
     'musicVolume': musicVolume,
@@ -618,6 +624,7 @@ class Project {
             .toList(),
         name: j['name'] as String,
         audio: j['audio'] as String?,
+        musicCredit: j['musicCredit'] as String? ?? '',
         durationUs: j['durationUs'] as int,
         startUs: j['startUs'] as int,
         endUs: j['endUs'] as int,
