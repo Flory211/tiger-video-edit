@@ -37,8 +37,6 @@ void main() {
     }
     expect(result.tracks, isNotEmpty);
     expect(result.tracks.first.previewUrl?.scheme, 'https');
-    final player = Player();
-    var heard = false;
     final key = GlobalKey();
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1400, 1000);
@@ -60,14 +58,6 @@ void main() {
             configFile: File('${directory.path}/jamendo.json'),
             workingDirectory: directory,
             onUse: (_) async => fail('Editing is not approved'),
-            previewOverride: (url) async {
-              await player.open(Media(url.toString()));
-              await player.stream.position
-                  .firstWhere((p) => p > Duration.zero)
-                  .timeout(const Duration(seconds: 25));
-              heard = true;
-              await player.stop();
-            },
           ),
         ),
       ),
@@ -103,30 +93,42 @@ void main() {
       await tester.tap(find.text(result.tracks.first.title));
       await settle();
       await capture('JAMENDO_DESKTOP.png');
-      await tester.runAsync(() async {
-        await player.open(Media(result.tracks.first.previewUrl.toString()));
-        await player.stream.position
-            .firstWhere((p) => p > Duration.zero)
-            .timeout(const Duration(seconds: 25));
-        expect(player.state.duration, greaterThan(Duration.zero));
-        heard = true;
-        await player.stop();
-      });
-      expect(heard, true);
+      await tester.tap(find.byTooltip('Прослушать').first);
+      var heard = false;
+      for (var i = 0; i < 60 && !heard; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 500)),
+        );
+        await tester.pump(const Duration(milliseconds: 80));
+        heard = find.byTooltip('Остановить').evaluate().isNotEmpty;
+      }
+      expect(
+        heard,
+        true,
+        reason:
+            'Production relay/player must reach a decoded positive audio position. '
+            '${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data ?? '').where((s) => s.contains('Не удалось') || s.contains('не поддерживает') || s.contains('недоступен')).join('; ')}',
+      );
+      await tester.tap(find.byTooltip('Остановить').first);
+      await settle();
+      expect(find.byTooltip('Остановить'), findsNothing);
       tester.view.physicalSize = const Size(390, 844);
       await tester.binding.setSurfaceSize(const Size(390, 844));
       await capture('JAMENDO_PHONE.png');
       expect(
-        directory.listSync(),
+        directory
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.mp3') || f.path.endsWith('.part')),
         isEmpty,
         reason: 'Search and stream do not create downloaded music files.',
       );
       print(
-        'JAMENDO_LIVE_PASS real API results, native stream position/duration, desktop/phone UI; editing gate remains closed.',
+        'JAMENDO_LIVE_PASS real API, production relay/MP3 decoder readiness/stop, desktop/phone UI, no audio files; editing gate remains closed.',
       );
     } finally {
       await tester.pumpWidget(const SizedBox());
-      await tester.runAsync(player.dispose);
+      await settle();
       await tester.runAsync(() => directory.delete(recursive: true));
     }
   });

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tiger_video_edit/jamendo.dart';
@@ -22,6 +23,106 @@ Map<String, dynamic> row({String license = 'by', bool download = true}) => {
 };
 
 void main() {
+  test('relay close handles an upstream cancellation failure', () async {
+    late StreamController<List<int>> upstream;
+    upstream = StreamController<List<int>>(
+      onListen: () => upstream.add([1, 2, 3]),
+      onCancel: () =>
+          Future<void>.error(const JamendoException('Cancelled network read')),
+    );
+    final track = JamendoProvider.parseTrack(row())!;
+    final preview = await JamendoPreview.start(track, (_) => upstream.stream);
+    final client = HttpClient();
+    try {
+      final response = await (await client.getUrl(preview.uri)).close();
+      final started = Completer<void>();
+      final subscription = response.listen((_) {
+        if (!started.isCompleted) started.complete();
+      }, onError: (Object _) {});
+      await started.future.timeout(const Duration(seconds: 2));
+      await preview.close();
+      await subscription.cancel();
+    } finally {
+      client.close(force: true);
+      await preview.close();
+      await upstream.close();
+    }
+  });
+  test('preview relay is loopback-only, rejects wrong paths, and cancels upstream on close', () async {
+    final cancelled = Completer<void>();
+    late StreamController<List<int>> upstream;
+    upstream = StreamController<List<int>>(
+      onListen: () => upstream.add([1, 2, 3]),
+      onCancel: () => cancelled.complete(),
+    );
+    final p = JamendoProvider(
+      clientId: 'fixture-id',
+      getJson: (_) async => {
+        'headers': {'status': 'success'},
+        'results': [row()],
+      },
+      audioStream: (_) => upstream.stream,
+    );
+    final preview = await p.openPreview(JamendoProvider.parseTrack(row())!);
+    final client = HttpClient();
+    try {
+      expect(preview.uri.host, '127.0.0.1');
+      expect(preview.uri.path.endsWith('.mp3'), true);
+      final bad = await (await client.getUrl(
+        preview.uri.replace(path: '/wrong.mp3'),
+      )).close();
+      expect(bad.statusCode, 403);
+      await bad.drain<void>();
+      final started = Completer<void>();
+      final response = await (await client.getUrl(preview.uri)).close();
+      final subscription = response.listen((bytes) {
+        if (!started.isCompleted) started.complete();
+      }, onError: (Object _) {});
+      await started.future.timeout(const Duration(seconds: 2));
+      await preview.close();
+      await cancelled.future.timeout(const Duration(seconds: 2));
+      await subscription.cancel();
+    } finally {
+      client.close(force: true);
+      await preview.close();
+      await upstream.close();
+    }
+  });
+
+  test(
+    'cancelling while fresh metadata is pending never opens audio',
+    () async {
+      final metadata = Completer<Map<String, dynamic>>();
+      var audioCalls = 0, cancel = false;
+      final dir = Directory.systemTemp.createTempSync(
+        'tiger-jamendo-cancel-metadata-',
+      );
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final p = JamendoProvider(
+        clientId: 'fixture-id',
+        editingApproved: true,
+        getJson: (_) => metadata.future,
+        audioStream: (_) {
+          audioCalls++;
+          return Stream.value([1]);
+        },
+      );
+      final future = p.prepareForEditing(
+        JamendoProvider.parseTrack(row(), editingApproved: true)!,
+        dir,
+        cancelled: () => cancel,
+      );
+      final assertion = expectLater(future, throwsA(isA<JamendoException>()));
+      cancel = true;
+      metadata.complete({
+        'headers': {'status': 'success'},
+        'results': [row()],
+      });
+      await assertion;
+      expect(audioCalls, 0);
+      expect(dir.listSync(), isEmpty);
+    },
+  );
   test('editing refresh rejects withdrawn rights and cleans cancelled partial files', () async {
     final dir = Directory.systemTemp.createTempSync('tiger-jamendo-download-');
     addTearDown(() => dir.deleteSync(recursive: true));

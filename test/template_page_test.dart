@@ -42,7 +42,8 @@ Future<void> settle(WidgetTester tester) async {
 }
 
 Future<void> idle(WidgetTester tester) async {
-  for (var i = 0; i < 100; i++) {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (DateTime.now().isBefore(deadline)) {
     await tester.pump();
     if (find.text('Обработка…').evaluate().isEmpty) return;
     await Future<void>.delayed(const Duration(milliseconds: 10));

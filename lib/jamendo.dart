@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'music_library.dart';
 
@@ -15,6 +16,111 @@ class JamendoPage {
   final List<OnlineMusicTrack> tracks;
   final bool hasMore;
   const JamendoPage(this.tracks, {this.hasMore = false});
+}
+
+/// The decoder receives only this localhost MP3 stream, never a remote URL.
+/// Every upstream redirect stays inside the validated Dart transport. No disk cache.
+class JamendoPreview {
+  final OnlineMusicTrack track;
+  final HttpServer _server;
+  final Stream<List<int>> Function(void Function(HttpClient)) _source;
+  final _clients = <HttpClient>{};
+  final _streams = <StreamIterator<List<int>>>{};
+  final String _token;
+  int _requests = 0;
+  bool _closed = false;
+  JamendoPreview._(this._server, this._source, this._token, this.track);
+  Uri get uri => Uri(
+    scheme: 'http',
+    host: '127.0.0.1',
+    port: _server.port,
+    path: '/$_token.mp3',
+  );
+  static Future<JamendoPreview> start(
+    OnlineMusicTrack track,
+    Stream<List<int>> Function(void Function(HttpClient)) source,
+  ) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final random = Random.secure();
+    final token = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final preview = JamendoPreview._(server, source, token, track);
+    server.listen(
+      (request) => unawaited(preview._serve(request)),
+      onError: (Object _) {},
+    );
+    return preview;
+  }
+
+  Future<void> _serve(HttpRequest request) async {
+    StreamIterator<List<int>>? stream;
+    try {
+      if (_closed ||
+          request.uri.path != uri.path ||
+          request.uri.hasQuery ||
+          !{'GET', 'HEAD'}.contains(request.method) ||
+          _requests++ >= 8) {
+        request.response.statusCode = 403;
+        await request.response.close();
+        return;
+      }
+      request.response.headers.contentType = ContentType('audio', 'mpeg');
+      request.response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
+      request.response.bufferOutput = false;
+      if (request.method == 'GET') {
+        stream = StreamIterator(
+          _source((client) {
+            if (_closed) {
+              client.close(force: true);
+            } else {
+              _clients.add(client);
+            }
+          }),
+        );
+        _streams.add(stream);
+        while (!_closed && await stream.moveNext()) {
+          request.response.add(stream.current);
+          await request.response.flush();
+        }
+      }
+      await request.response.close();
+    } catch (_) {
+      try {
+        await request.response.close();
+      } catch (_) {}
+    } finally {
+      if (stream != null) {
+        _streams.remove(stream);
+        try {
+          await stream.cancel();
+        } catch (_) {
+          // Closing the HTTP client can fail a pending upstream read.
+        }
+      }
+    }
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    for (final client in _clients) {
+      client.close(force: true);
+    }
+    _clients.clear();
+    final closing = _server.close(force: true);
+    for (final stream in _streams.toList()) {
+      try {
+        await stream.cancel();
+      } catch (_) {
+        // Cancellation intentionally closes the active network request.
+      }
+    }
+    _streams.clear();
+    await closing;
+  }
 }
 
 typedef JamendoJson = Future<Map<String, dynamic>> Function(
@@ -252,12 +358,7 @@ class JamendoProvider implements OnlineMusicProvider {
   Future<List<OnlineMusicTrack>> search(String query, {String? genre}) async =>
       (await searchPage(query, genre: genre ?? '')).tracks;
 
-  Future<OnlineMusicTrack> _verified(OnlineMusicTrack track) async {
-    if (!editingApproved) {
-      throw const JamendoException(
-        'Добавление из Jamendo в монтаж ожидает подтверждения условий сервиса. Поиск и прослушивание доступны.',
-      );
-    }
+  Future<OnlineMusicTrack> refresh(OnlineMusicTrack track) async {
     if (!RegExp(r'^\d{1,20}$').hasMatch(track.id)) {
       throw const JamendoException('Неверный трек.');
     }
@@ -266,15 +367,29 @@ class JamendoProvider implements OnlineMusicProvider {
       'limit': '1',
       'audioformat': 'mp32',
       'include': 'licenses musicinfo',
+      'type': 'single albumtrack',
     });
     final rows = response['results'] as List;
     final fresh = rows.length == 1 && rows.first is Map
         ? parseTrack(
             Map<String, dynamic>.from(rows.first),
-            editingApproved: true,
+            editingApproved: editingApproved,
           )
         : null;
-    if (fresh == null || fresh.id != track.id || !fresh.canDownload) {
+    if (fresh == null || fresh.id != track.id) {
+      throw const JamendoException('Трек больше недоступен в Jamendo.');
+    }
+    return fresh;
+  }
+
+  Future<OnlineMusicTrack> _verified(OnlineMusicTrack track) async {
+    if (!editingApproved) {
+      throw const JamendoException(
+        'Добавление из Jamendo в монтаж ожидает подтверждения условий сервиса. Поиск и прослушивание доступны.',
+      );
+    }
+    final fresh = await refresh(track);
+    if (!fresh.canDownload) {
       throw const JamendoException(
         'Автор или лицензия не разрешают добавление этого трека в монтаж.',
       );
@@ -288,12 +403,26 @@ class JamendoProvider implements OnlineMusicProvider {
     return _bytes(fresh.downloadUrl!);
   }
 
+  Future<JamendoPreview> openPreview(OnlineMusicTrack track) async {
+    final fresh = await refresh(track);
+    return JamendoPreview.start(
+      fresh,
+      (register) =>
+          audioStream?.call(fresh.previewUrl!) ??
+          _audioBytes(fresh.previewUrl!, onClient: register),
+    );
+  }
+
   Stream<List<int>> _bytes(Uri uri) =>
       audioStream?.call(uri) ?? _audioBytes(uri);
 
-  Stream<List<int>> _audioBytes(Uri start) async* {
+  Stream<List<int>> _audioBytes(
+    Uri start, {
+    void Function(HttpClient)? onClient,
+  }) async* {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
+    onClient?.call(client);
     try {
       var uri = start;
       for (var redirects = 0; redirects <= 3; redirects++) {
@@ -348,6 +477,9 @@ class JamendoProvider implements OnlineMusicProvider {
     bool Function()? cancelled,
   }) async {
     final fresh = await _verified(track);
+    if (cancelled?.call() == true) {
+      throw const JamendoException('Загрузка отменена.');
+    }
     await directory.create(recursive: true);
     final file = File(
       '${directory.path}/jamendo-${fresh.id}-${DateTime.now().microsecondsSinceEpoch}.mp3',

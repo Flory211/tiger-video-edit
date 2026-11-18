@@ -15,7 +15,7 @@ class JamendoMusicPage extends StatefulWidget {
   final Directory workingDirectory;
   final Future<void> Function(MusicTrack track) onUse;
   final JamendoProvider? provider;
-  final Future<void> Function(Uri)? previewOverride;
+  final Player Function()? playerFactory;
   final double volume;
   const JamendoMusicPage({
     super.key,
@@ -23,7 +23,7 @@ class JamendoMusicPage extends StatefulWidget {
     required this.workingDirectory,
     required this.onUse,
     this.provider,
-    this.previewOverride,
+    this.playerFactory,
     this.volume = 1,
   });
   @override
@@ -43,6 +43,7 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
   List<OnlineMusicTrack> tracks = [];
   bool loading = false, hasMore = false, searched = false, reusableOnly = false;
   bool selecting = false,
+      committing = false,
       cancelled = false,
       previewLoading = false,
       configuring = true;
@@ -50,7 +51,12 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
   String genre = '', submitted = '', submittedGenre = '', error = '';
   String? playing;
   Player? player;
+  JamendoPreview? relay;
   StreamSubscription<String>? playerErrors;
+  StreamSubscription<bool>? playerCompleted;
+  StreamSubscription<Duration>? playerPosition;
+  Completer<void>? ready;
+  int previewGeneration = 0;
   final favorites = <String, OnlineMusicTrack>{};
   final history = <String, OnlineMusicTrack>{};
   String collection = 'search';
@@ -238,13 +244,11 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
     }
   }
 
-  Future<void> _search({int nextPage = 1}) async {
+  Future<void> _search({int nextPage = 1, bool submit = false}) async {
     if (loading || selecting || configuring) return;
     final request = ++generation;
-    if (nextPage == 1) {
-      submitted = query.text.trim();
-      submittedGenre = genre;
-    }
+    final requestedQuery = submit ? query.text.trim() : submitted;
+    final requestedGenre = submit ? genre : submittedGenre;
     collection = 'search';
     setState(() {
       loading = true;
@@ -253,8 +257,8 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
     try {
       await _stop();
       final result = await provider.searchPage(
-        submitted,
-        genre: submittedGenre,
+        requestedQuery,
+        genre: requestedGenre,
         page: nextPage,
       );
       if (!mounted || request != generation) return;
@@ -262,6 +266,8 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
         tracks = result.tracks;
         hasMore = result.hasMore;
         page = nextPage;
+        submitted = requestedQuery;
+        submittedGenre = requestedGenre;
         searched = true;
       });
     } catch (e) {
@@ -276,13 +282,40 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
     }
   }
 
-  Future<void> _stop() async {
+  Future<void> _stop({bool keepLoading = false}) async {
+    final stopToken = ++previewGeneration;
+    final pending = ready;
+    ready = null;
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(
+        const JamendoException('Прослушивание остановлено.'),
+      );
+    }
+    final oldRelay = relay;
+    relay = null;
+    final old = player;
+    player = null;
+    final oldErrors = playerErrors;
+    playerErrors = null;
+    final oldCompleted = playerCompleted;
+    playerCompleted = null;
+    final oldPosition = playerPosition;
+    playerPosition = null;
+    await oldRelay?.close();
+    await oldErrors?.cancel();
+    await oldCompleted?.cancel();
+    await oldPosition?.cancel();
     try {
-      await player?.stop();
+      await old?.dispose();
     } catch (_) {
       /* Stop also resets UI after a lost stream. */
     }
-    if (mounted) setState(() => playing = null);
+    if (mounted && stopToken == previewGeneration) {
+      setState(() {
+        playing = null;
+        if (!keepLoading) previewLoading = false;
+      });
+    }
   }
 
   Future<void> _preview(OnlineMusicTrack track) async {
@@ -296,33 +329,90 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
       error = '';
       playing = null;
     });
+    var token = previewGeneration;
     try {
-      await _stop();
-      if (!mounted) return;
-      if (widget.previewOverride != null) {
-        await widget.previewOverride!(track.previewUrl!);
-      } else {
-        if (player == null) {
-          player = Player();
-          playerErrors = player!.stream.error.listen((_) {
-            _error(
-              'Не удалось воспроизвести трек. Попробуй другой или проверь интернет.',
-            );
-          });
+      final stopped = _stop(keepLoading: true);
+      token = previewGeneration;
+      await stopped;
+      if (!mounted || token != previewGeneration) return;
+      final activePlayer =
+          widget.playerFactory?.call() ??
+          Player(
+            configuration: const PlayerConfiguration(
+              protocolWhitelist: ['http', 'tcp'],
+            ),
+          );
+      player = activePlayer;
+      final playback = Completer<void>();
+      ready = playback;
+      unawaited(playback.future.catchError((Object _) {}));
+      playerErrors = activePlayer.stream.error.listen((_) {
+        if (token != previewGeneration) return;
+        _error(
+          'Не удалось воспроизвести трек. Попробуй другой или проверь интернет.',
+        );
+        unawaited(_stop());
+      });
+      playerCompleted = activePlayer.stream.completed.listen((ended) {
+        if (ended && token == previewGeneration) unawaited(_stop());
+      });
+      playerPosition = activePlayer.stream.position.listen((position) {
+        if (token == previewGeneration &&
+            position > Duration.zero &&
+            !playback.isCompleted) {
+          playback.complete();
         }
-        await player!.setVolume(widget.volume.clamp(0, 1) * 100);
-        await player!
-            .open(Media(track.previewUrl.toString()))
-            .timeout(const Duration(seconds: 25));
+      });
+      final native = activePlayer.platform;
+      if (native is NativePlayer) {
+        await native.setProperty('cache-on-disk', 'no');
+        await native.setProperty('demuxer', 'lavf');
+        await native.setProperty('demuxer-lavf-format', 'mp3');
+        if (await native.getProperty('options/cache-on-disk') != 'no' ||
+            await native.getProperty('options/demuxer-lavf-format') != 'mp3' ||
+            await native.getProperty('options/demuxer') != 'lavf') {
+          throw const JamendoException(
+            'Проигрыватель не поддерживает защищённое прослушивание MP3.',
+          );
+        }
       }
-      if (mounted) {
+      final handle = await provider.openPreview(track);
+      if (!mounted || token != previewGeneration) {
+        await handle.close();
+        return;
+      }
+      relay = handle;
+      final currentTrack = handle.track;
+      setState(() {
+        tracks = tracks
+            .map((t) => t.id == currentTrack.id ? currentTrack : t)
+            .toList();
+        if (favorites.containsKey(currentTrack.id)) {
+          favorites[currentTrack.id] = currentTrack;
+        }
+      });
+      await activePlayer.setVolume(widget.volume.clamp(0, 1) * 100);
+      await activePlayer
+          .open(Media(handle.uri.toString()))
+          .timeout(const Duration(seconds: 25));
+      await playback.future.timeout(const Duration(seconds: 25));
+      if (mounted && token == previewGeneration) {
         setState(() => playing = track.id);
-        await _remember(track);
+        await _remember(currentTrack);
       }
-    } catch (_) {
-      _error('Не удалось воспроизвести трек. Проверь интернет.');
+    } catch (problem) {
+      if (mounted && token == previewGeneration) {
+        _error(
+          problem is JamendoException
+              ? problem.message
+              : 'Не удалось воспроизвести трек. Проверь интернет.',
+        );
+        await _stop();
+      }
     } finally {
-      if (mounted) setState(() => previewLoading = false);
+      if (mounted && token == previewGeneration) {
+        setState(() => previewLoading = false);
+      }
     }
   }
 
@@ -347,6 +437,7 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
       );
       temporary = file;
       if (!mounted || cancelled) return;
+      setState(() => committing = true);
       await widget.onUse(
         MusicTrack(
           id: 'jamendo:${fresh.id}',
@@ -370,7 +461,12 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
       if (temporary != null && await temporary.exists()) {
         await temporary.delete();
       }
-      if (mounted) setState(() => selecting = false);
+      if (mounted) {
+        setState(() {
+          selecting = false;
+          committing = false;
+        });
+      }
     }
   }
 
@@ -400,8 +496,7 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
     generation++;
     cancelled = true;
     query.dispose();
-    unawaited(playerErrors?.cancel());
-    unawaited(player?.dispose());
+    unawaited(_stop());
     super.dispose();
   }
 
@@ -419,254 +514,265 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
               (t.license.synchronizationAllowed && t.license.downloadAllowed),
         )
         .toList();
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Онлайн • Jamendo'),
-        actions: [
-          IconButton(
-            tooltip: 'Подключение Jamendo',
-            onPressed: selecting || loading ? null : _connect,
-            icon: const Icon(Icons.settings_outlined),
-          ),
-        ],
-      ),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Text(
-                      provider.unavailableReason ?? 'Поиск и прослушивание онлайн. Локальная музыка остаётся в разделе «Музыка».',
-                    ),
-                    if (provider.unavailableReason != null)
-                      TextButton(
-                        onPressed: configuring ? null : _connect,
-                        child: const Text('Подключить Jamendo'),
-                      ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: query,
-                      onSubmitted: (_) => _search(),
-                      maxLength: 200,
-                      decoration: const InputDecoration(
-                        labelText: 'Название, исполнитель или настроение',
-                        prefixIcon: Icon(Icons.search),
-                        counterText: '',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        DropdownButton<String>(
-                          value: genre,
-                          items: genres.entries
-                              .map(
-                                (e) => DropdownMenuItem(
-                                  value: e.key,
-                                  child: Text(e.value),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: loading || selecting
-                              ? null
-                              : (value) => setState(() => genre = value ?? ''),
-                        ),
-                        FilledButton.icon(
-                          onPressed:
-                              loading ||
-                                  selecting ||
-                                  configuring ||
-                                  provider.unavailableReason != null
-                              ? null
-                              : () => _search(),
-                          icon: const Icon(Icons.search),
-                          label: const Text('Найти'),
-                        ),
-                        FilterChip(
-                          label: const Text('CC BY / CC0'),
-                          selected: reusableOnly,
-                          onSelected: (value) =>
-                              setState(() => reusableOnly = value),
-                        ),
-                        FilterChip(
-                          label: const Text('Избранное'),
-                          selected: collection == 'favorites',
-                          onSelected: (v) => setState(
-                            () => collection = v ? 'favorites' : 'search',
-                          ),
-                        ),
-                        FilterChip(
-                          label: const Text('История'),
-                          selected: collection == 'history',
-                          onSelected: (v) => setState(
-                            () => collection = v ? 'history' : 'search',
-                          ),
-                        ),
-                        if (playing != null)
-                          TextButton.icon(
-                            onPressed: _stop,
-                            icon: const Icon(Icons.stop),
-                            label: const Text('Стоп'),
-                          ),
-                      ],
-                    ),
-                    if (error.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          error,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              if (loading || configuring || selecting)
-                const LinearProgressIndicator(),
-              if (selecting)
-                ListTile(
-                  title: Text(
-                    'Подготовка трека: ${(downloadedBytes / 1024).round()} КБ',
-                  ),
-                  trailing: TextButton(
-                    onPressed: () => setState(() => cancelled = true),
-                    child: const Text('Отменить'),
-                  ),
-                ),
-              Expanded(
-                child: visible.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            searched
-                                ? 'По этим условиям ничего не найдено. Измени запрос, фильтр или страницу.'
-                                : 'Введи запрос и нажми «Найти». До этого приложение не обращается к Jamendo.',
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: visible.length,
-                        itemBuilder: (context, index) {
-                          final t = visible[index];
-                          return Card(
-                            margin: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 5,
-                            ),
-                            child: ExpansionTile(
-                              title: Text(t.title),
-                              trailing: IconButton(
-                                tooltip: 'В избранное',
-                                onPressed: () => _favorite(t),
-                                icon: Icon(
-                                  favorites.containsKey(t.id)
-                                      ? Icons.favorite
-                                      : Icons.favorite_border,
-                                ),
-                              ),
-                              subtitle: Text(
-                                '${t.artist} • ${t.duration.inMinutes}:${(t.duration.inSeconds % 60).toString().padLeft(2, '0')} • ${t.license.name}',
-                              ),
-                              leading: IconButton(
-                                tooltip: playing == t.id
-                                    ? 'Остановить'
-                                    : 'Прослушать',
-                                onPressed: previewLoading || selecting
-                                    ? null
-                                    : () => _preview(t),
-                                icon: Icon(
-                                  playing == t.id
-                                      ? Icons.stop_circle_outlined
-                                      : Icons.play_circle_outline,
-                                ),
-                              ),
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      if (t.genre.isNotEmpty) Text(t.genre),
-                                      SelectableText(t.license.attribution),
-                                      const SizedBox(height: 8),
-                                      Text(_reason(t)),
-                                      const SizedBox(height: 8),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          FilledButton.icon(
-                                            onPressed:
-                                                selecting ||
-                                                    !provider.editingApproved ||
-                                                    !t.canDownload
-                                                ? null
-                                                : () => _use(t),
-                                            icon: const Icon(Icons.add),
-                                            label: const Text('В проект'),
-                                          ),
-                                          TextButton(
-                                            onPressed: () =>
-                                                _copy(t.license.attribution),
-                                            child: const Text(
-                                              'Копировать авторство',
-                                            ),
-                                          ),
-                                          TextButton(
-                                            onPressed: () =>
-                                                _copy(t.sourceUrl.toString()),
-                                            child: const Text(
-                                              'Копировать ссылку',
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              if (searched && collection == 'search')
+    return PopScope(
+      canPop: !committing,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Онлайн • Jamendo'),
+          actions: [
+            IconButton(
+              tooltip: 'Подключение Jamendo',
+              onPressed: selecting || loading ? null : _connect,
+              icon: const Icon(Icons.settings_outlined),
+            ),
+          ],
+        ),
+        body: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: Column(
+              children: [
                 Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
                     children: [
-                      IconButton(
-                        tooltip: 'Предыдущая страница',
-                        onPressed: loading || selecting || page <= 1
-                            ? null
-                            : () => _search(nextPage: page - 1),
-                        icon: const Icon(Icons.chevron_left),
+                      Text(
+                        provider.unavailableReason ?? 'Поиск и прослушивание онлайн. Локальная музыка остаётся в разделе «Музыка».',
                       ),
-                      Text('Страница $page'),
-                      IconButton(
-                        tooltip: 'Следующая страница',
-                        onPressed: loading || selecting || !hasMore
-                            ? null
-                            : () => _search(nextPage: page + 1),
-                        icon: const Icon(Icons.chevron_right),
+                      if (provider.unavailableReason != null)
+                        TextButton(
+                          onPressed: configuring ? null : _connect,
+                          child: const Text('Подключить Jamendo'),
+                        ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: query,
+                        onSubmitted: (_) => _search(submit: true),
+                        maxLength: 200,
+                        decoration: const InputDecoration(
+                          labelText: 'Название, исполнитель или настроение',
+                          prefixIcon: Icon(Icons.search),
+                          counterText: '',
+                        ),
                       ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          DropdownButton<String>(
+                            value: genre,
+                            items: genres.entries
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e.key,
+                                    child: Text(e.value),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: loading || selecting
+                                ? null
+                                : (value) =>
+                                      setState(() => genre = value ?? ''),
+                          ),
+                          FilledButton.icon(
+                            onPressed:
+                                loading ||
+                                    selecting ||
+                                    configuring ||
+                                    provider.unavailableReason != null
+                                ? null
+                                : () => _search(submit: true),
+                            icon: const Icon(Icons.search),
+                            label: const Text('Найти'),
+                          ),
+                          FilterChip(
+                            label: const Text('CC BY / CC0'),
+                            selected: reusableOnly,
+                            onSelected: (value) =>
+                                setState(() => reusableOnly = value),
+                          ),
+                          FilterChip(
+                            label: const Text('Избранное'),
+                            selected: collection == 'favorites',
+                            onSelected: (v) => setState(
+                              () => collection = v ? 'favorites' : 'search',
+                            ),
+                          ),
+                          FilterChip(
+                            label: const Text('История'),
+                            selected: collection == 'history',
+                            onSelected: (v) => setState(
+                              () => collection = v ? 'history' : 'search',
+                            ),
+                          ),
+                          if (playing != null || previewLoading)
+                            TextButton.icon(
+                              onPressed: _stop,
+                              icon: const Icon(Icons.stop),
+                              label: const Text('Стоп'),
+                            ),
+                        ],
+                      ),
+                      if (error.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            error,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-            ],
+                if (loading || configuring || selecting)
+                  const LinearProgressIndicator(),
+                if (selecting)
+                  ListTile(
+                    title: Text(
+                      committing
+                          ? 'Добавление в проект…'
+                          : cancelled
+                          ? 'Отмена загрузки…'
+                          : 'Подготовка трека: ${(downloadedBytes / 1024).round()} КБ',
+                    ),
+                    trailing: TextButton(
+                      onPressed: committing || cancelled
+                          ? null
+                          : () => setState(() => cancelled = true),
+                      child: const Text('Отменить'),
+                    ),
+                  ),
+                Expanded(
+                  child: visible.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              searched
+                                  ? 'По этим условиям ничего не найдено. Измени запрос, фильтр или страницу.'
+                                  : 'Введи запрос и нажми «Найти». До этого приложение не обращается к Jamendo.',
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: visible.length,
+                          itemBuilder: (context, index) {
+                            final t = visible[index];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 5,
+                              ),
+                              child: ExpansionTile(
+                                title: Text(t.title),
+                                trailing: IconButton(
+                                  tooltip: 'В избранное',
+                                  onPressed: () => _favorite(t),
+                                  icon: Icon(
+                                    favorites.containsKey(t.id)
+                                        ? Icons.favorite
+                                        : Icons.favorite_border,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  '${t.artist} • ${t.duration.inMinutes}:${(t.duration.inSeconds % 60).toString().padLeft(2, '0')} • ${t.license.name}',
+                                ),
+                                leading: IconButton(
+                                  tooltip: playing == t.id
+                                      ? 'Остановить'
+                                      : 'Прослушать',
+                                  onPressed: previewLoading || selecting
+                                      ? null
+                                      : () => _preview(t),
+                                  icon: Icon(
+                                    playing == t.id
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.play_circle_outline,
+                                  ),
+                                ),
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (t.genre.isNotEmpty) Text(t.genre),
+                                        SelectableText(t.license.attribution),
+                                        const SizedBox(height: 8),
+                                        Text(_reason(t)),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            FilledButton.icon(
+                                              onPressed:
+                                                  selecting ||
+                                                      !provider
+                                                          .editingApproved ||
+                                                      !t.canDownload
+                                                  ? null
+                                                  : () => _use(t),
+                                              icon: const Icon(Icons.add),
+                                              label: const Text('В проект'),
+                                            ),
+                                            TextButton(
+                                              onPressed: () =>
+                                                  _copy(t.license.attribution),
+                                              child: const Text(
+                                                'Копировать авторство',
+                                              ),
+                                            ),
+                                            TextButton(
+                                              onPressed: () =>
+                                                  _copy(t.sourceUrl.toString()),
+                                              child: const Text(
+                                                'Копировать ссылку',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                if (searched && collection == 'search')
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          tooltip: 'Предыдущая страница',
+                          onPressed: loading || selecting || page <= 1
+                              ? null
+                              : () => _search(nextPage: page - 1),
+                          icon: const Icon(Icons.chevron_left),
+                        ),
+                        Text('Страница $page'),
+                        IconButton(
+                          tooltip: 'Следующая страница',
+                          onPressed: loading || selecting || !hasMore
+                              ? null
+                              : () => _search(nextPage: page + 1),
+                          icon: const Icon(Icons.chevron_right),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
