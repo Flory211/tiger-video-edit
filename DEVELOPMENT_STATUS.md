@@ -1,4 +1,8 @@
-# Tiger Video Edit 3.0.0+3004 — local release candidate
+# Tiger Video Edit 3.0.0+3005 — Jamendo preview
+
+Update 2026-11-18: Jamendo online search, genres, pagination, listening, metadata-only favorites/history, local Client ID settings and licence/source/attribution display are implemented. The editing/export path is prepared but disabled until documented Jamendo permission for the application scenario. No offline audio catalogue or Client Secret is used. Guide: [docs/JAMENDO_GUIDE_RU.md](docs/JAMENDO_GUIDE_RU.md).
+
+Final local verification: **136/136 root tests passed; analyzer clean**. A real Windows native UI test passed using the production page/player: actual API search, MP3 playback readiness, Stop, desktop/phone layouts and no downloaded audio files. Streaming uses a temporary loopback relay with validated upstream redirects, forced MP3 demuxing and disabled disk cache. The review fixes also cover submitted-query pagination, EOF/error lifecycle and cancellation during gated project import. Android physical-device playback remains untested. Older 3004 results below describe the previous baseline.
 
 Final CI check 2026-11-18: **Windows and Android GitHub Actions both passed at `ac5162d`**, with 121/121 tests and clean analysis on each runner. Windows Setup and ARM64 TEST-debug APK were created; both downloaded artifact manifests verified. A Windows-only native-close test assumption on Linux was corrected without changing application behavior; FFmpeg CI setup now excludes optional recommended packages and bounds network waits. Evidence, exact hashes and runner links: [docs/CI_RELEASE.md](docs/CI_RELEASE.md). No production binary Release or physical-device acceptance is implied.
 

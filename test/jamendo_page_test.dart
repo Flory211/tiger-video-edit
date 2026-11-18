@@ -53,6 +53,79 @@ class _PreviewPlayer extends Fake implements Player {
 
 void main() {
   testWidgets(
+    'Back cancels pending import before the exit animation finishes',
+    (tester) async {
+      final dir = Directory.systemTemp.createTempSync('tiger-jamendo-back-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final metadata = Completer<Map<String, dynamic>>();
+      var refreshStarted = false, audioOpened = false, imported = false;
+      final provider = JamendoProvider(
+        clientId: 'fixture-id',
+        editingApproved: true,
+        getJson: (params) async {
+          if (params.containsKey('id')) {
+            refreshStarted = true;
+            return metadata.future;
+          }
+          return {
+            'headers': {'status': 'success'},
+            'results': [row()],
+          };
+        },
+        audioStream: (_) {
+          audioOpened = true;
+          return Stream.value([1, 2, 3]);
+        },
+      );
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(navigatorKey: navigator, home: const Scaffold()),
+      );
+      unawaited(
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => JamendoMusicPage(
+              provider: provider,
+              configFile: File('${dir.path}/config.json'),
+              workingDirectory: dir,
+              onUse: (_) async {
+                imported = true;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Найти'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Piano'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(FilledButton, 'В проект'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('В проект'));
+      await tester.pump();
+      expect(refreshStarted, true);
+      navigator.currentState!.pop();
+      // Complete metadata while the outgoing route is still mounted.
+      metadata.complete({
+        'headers': {'status': 'success'},
+        'results': [row()],
+      });
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pumpAndSettle();
+      expect(audioOpened, false);
+      expect(imported, false);
+      expect(dir.listSync(), isEmpty);
+    },
+  );
+  testWidgets(
     'cancel is disabled after project import starts and temporary audio is removed',
     (tester) async {
       final dir = Directory.systemTemp.createTempSync(

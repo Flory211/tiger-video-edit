@@ -516,6 +516,9 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
         .toList();
     return PopScope(
       canPop: !committing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) cancelled = true;
+      },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Онлайн • Jamendo'),
