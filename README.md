@@ -25,7 +25,7 @@ Windows: запустите установщик `TigerVideoEdit-3.0.0-Windows-x
 
 Android: `TigerVideoEdit-3.0.0-Android-arm64-TEST-debug.apk` — **тестовый debug APK**, не финальная production-подпись. Не устанавливайте его поверх другой подписи без резервной копии: Android может потребовать совпадающий ключ. Реальное устройство пока не проверено.
 
-GitHub Releases ещё не опубликованы; целевой адрес после подтверждения владельца — [Flory211/tiger-video-edit/releases](https://github.com/Flory211/tiger-video-edit/releases). CI и правила выпуска: [CI_RELEASE.md](docs/CI_RELEASE.md), проверка перед публикацией: [PUBLICATION_REVIEW.md](docs/PUBLICATION_REVIEW.md).
+Исходники опубликованы в [Flory211/tiger-video-edit](https://github.com/Flory211/tiger-video-edit). Автоматические сборки: [GitHub Actions](https://github.com/Flory211/tiger-video-edit/actions). GitHub Releases пока не опубликованы. CI и правила выпуска: [CI_RELEASE.md](docs/CI_RELEASE.md), проверка перед публикацией: [PUBLICATION_REVIEW.md](docs/PUBLICATION_REVIEW.md).
 
 ## Сохранённые возможности 2.0
 

@@ -1,5 +1,11 @@
 # Publication review — 2026-10-31
 
+## Public source publication — 2026-11-18
+
+Official GitHub CLI browser authentication completed as `Flory211`. The approved public repository https://github.com/Flory211/tiger-video-edit was created, with `main` as the default branch. Both `main` and `feature/tiger-3.0` received source commit `e55c2b7505bd73a50a123dc1c6a8ea2dda214a7a` and its preserved history; remote ref verification matched the local commit. A fresh all-reachable-history secret scan passed before upload. Ignored binaries, imported media, tool caches and credentials were not uploaded. Existing GPLv3 is retained as approved.
+
+Windows and Android workflows automatically started for both branches. Main runs: https://github.com/Flory211/tiger-video-edit/actions/runs/44255815184 and https://github.com/Flory211/tiger-video-edit/actions/runs/44255815177. Their initial observed status was in progress; runner success is not inferred. No tag, binary Release, signing secret or external acceptance variable was created. Earlier statements that source was unpublished describe historical checkpoints.
+
 ## Corrected destination — 2026-11-15
 
 The owner clarified that the publishing account is `Flory211`; the approved source destination is now `Flory211/tiger-video-edit`, with the same GPLv3 scope. The previously connected `GushinetsN` account was incorrectly assumed to be the destination. No source had been uploaded and no remote had been configured. Earlier account references below are historical. CLI authentication must be verified as `Flory211` before any repository creation or push. The application update owner and current documentation links were corrected accordingly; existing pre-correction local binaries retain the old default owner until rebuilt.

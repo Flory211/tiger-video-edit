@@ -1,5 +1,7 @@
 # Tiger Video Edit 3.0.0+3004 — local release candidate
 
+Update 2026-11-18: approved GPLv3 application source and Git history are now public at https://github.com/Flory211/tiger-video-edit (`main` and `feature/tiger-3.0`, source commit `e55c2b7`). Windows/Android GitHub Actions started automatically; final results are recorded in the Actions UI. No public binary Release was created. The source update owner was corrected to Flory211; the earlier local installer/APK were built before that correction and retain the old default update owner until rebuilt. Historical publication-pending statements below are superseded for source publication only.
+
 Branch: `feature/tiger-3.0`, baseline commit `6f1e510`. The existing v2 application/data and LICENSE were preserved; no public repository or release was created. Read docs/V3_IMPLEMENTATION_PLAN.md and docs/V3_COVERAGE.md for the full migration scope.
 
 Verified before migration: 45/45 root tests, clean analyzer. New targeted checks cover schema migration, effect pixels/curves, service failures/checksums, navigation/unsaved guards, template files, audio mixing and settings/selection regressions. A native Windows v3 export passed twice: H.264/AAC, 854×480/24FPS/36frames/1.5s; preview-vs-output RGB MAE 1.384/255, actual layered effects/transition/overlay/Cyrillic caption/SFX and cancellation preservation. See docs/V3_NATIVE_EXPORT_CHECK.md. Final integrated checks and packages are recorded below.
