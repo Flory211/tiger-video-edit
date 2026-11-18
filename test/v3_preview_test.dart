@@ -240,7 +240,7 @@ void main() {
     },
   );
   testWidgets(
-    'native window requests preserve dirty project and reject busy operations',
+    'native close channel is Windows-only and preserves dirty projects',
     (tester) async {
       final dir = Directory.systemTemp.createTempSync('tiger-close');
       addTearDown(() => dir.deleteSync(recursive: true));
@@ -248,6 +248,15 @@ void main() {
       await tester.pumpWidget(TigerApp(editor: e));
       await tester.pumpAndSettle();
       e.dirty = true;
+      // The native WM_CLOSE bridge exists only in the Windows runner.
+      if (!Platform.isWindows) {
+        expect(await requestClose(tester), isNull);
+        expect(find.text('Несохранённые изменения'), findsNothing);
+        expect(e.dirty, isTrue);
+        await tester.pumpWidget(const SizedBox());
+        expect(tester.takeException(), isNull);
+        return;
+      }
       final close = requestClose(tester);
       await tester.pumpAndSettle();
       expect(find.text('Несохранённые изменения'), findsOneWidget);
