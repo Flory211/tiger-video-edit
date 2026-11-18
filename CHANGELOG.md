@@ -2,6 +2,8 @@
 
 ## 3.0.0 — in development
 
+- First Windows GitHub Actions builds passed with verified installer checksums. Android CI now installs FFmpeg without optional recommended desktop/speech packages, bounds network retries/timeouts, and separates SDK/FFmpeg/fixture steps after the first preparation run stalled on package downloads.
+
 - Audited the existing Flutter application; preserved the verified 2.0 baseline in Git.
 - Implemented .tve schema 3 with v1/v2 migration, ordered/local/global effects, keyframes and 8 curves, 29 recipes over 16 Canvas primitives.
 - Added responsive home/projects/music/sounds/templates/settings, group editing, independent visual/audio tracks, audio fades/mixing, six Auto Edit profiles and safe template CRUD.

@@ -42,14 +42,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: SDK and generated fixtures
+      - name: Install pinned Flutter SDK
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           git clone --depth 1 --branch 3.47.8 https://github.com/flutter/flutter.git .tools/flutter
           [[ "$(git -C .tools/flutter rev-parse HEAD)" == 737ba8f885dc774b53b442759999a312c9461e4e ]]
           echo "$PWD/.tools/flutter/bin" >> "$GITHUB_PATH"
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+      - name: Install FFmpeg without optional desktop packages
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
+      - name: Generate original demo fixtures
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
           node tools/generate-demo.cjs
           node tools/generate-v2-demo.cjs
       - name: Analyze and test
