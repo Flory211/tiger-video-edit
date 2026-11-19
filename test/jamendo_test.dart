@@ -24,6 +24,22 @@ Map<String, dynamic> row({String license = 'by', bool download = true}) => {
 
 void main() {
   test(
+    'empty catalogue replies are retried on the next explicit search',
+    () async {
+      var calls = 0;
+      final p = JamendoProvider(
+        clientId: 'fixture-id',
+        getJson: (_) async => {
+          'headers': {'status': 'success'},
+          'results': ++calls == 1 ? [] : [row()],
+        },
+      );
+      expect((await p.searchPage('brazilian phonk')).tracks, isEmpty);
+      expect((await p.searchPage('brazilian phonk')).tracks, hasLength(1));
+      expect(calls, 2);
+    },
+  );
+  test(
     'phonk searches use title matching and focused English/Russian aliases',
     () async {
       final requests = <Map<String, String>>[];

@@ -379,8 +379,10 @@ class JamendoProvider implements OnlineMusicProvider {
       List.unmodifiable(tracks),
       hasMore: rows.length == pageSize && page < 50,
     );
-    if (_cache.length >= 8) _cache.remove(_cache.keys.first);
-    _cache[key] = (DateTime.now(), result);
+    if (tracks.isNotEmpty) {
+      if (_cache.length >= 8) _cache.remove(_cache.keys.first);
+      _cache[key] = (DateTime.now(), result);
+    }
     return result;
   }
 
@@ -407,7 +409,9 @@ class JamendoProvider implements OnlineMusicProvider {
           )
         : null;
     if (fresh == null || fresh.id != track.id) {
-      throw const JamendoException('Трек больше недоступен в Jamendo.');
+      throw const JamendoException(
+        'Jamendo не вернул сведения о треке. Повтори попытку или выбери другой.',
+      );
     }
     return fresh;
   }

@@ -53,6 +53,58 @@ class _PreviewPlayer extends Fake implements Player {
 
 void main() {
   testWidgets(
+    'short phone with keyboard and landscape keep the library scrollable',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(360, 640));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+      addTearDown(() {
+        tester.view.resetViewInsets();
+        return tester.binding.setSurfaceSize(null);
+      });
+      final dir = Directory.systemTemp.createTempSync('tiger-music-keyboard-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final provider = JamendoProvider(
+        clientId: 'fixture-id',
+        getJson: (_) async => {
+          'headers': {'status': 'success'},
+          'results': [row()],
+        },
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: JamendoMusicPage(
+            provider: provider,
+            configFile: File('${dir.path}/config.json'),
+            workingDirectory: dir,
+            onUse: (_) async {},
+          ),
+        ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.ensureVisible(find.text('Найти'));
+      await tester.tap(find.text('Найти'));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -500));
+      await tester.pumpAndSettle();
+      expect(find.text('Piano'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      tester.view.resetViewInsets();
+      await tester.binding.setSurfaceSize(const Size(640, 360));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -500));
+      await tester.pumpAndSettle();
+      expect(find.text('Piano'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
     'phone phonk shortcut clears unrelated filters and exposes sorting',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(390, 844));

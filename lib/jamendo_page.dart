@@ -266,6 +266,7 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
 
   Future<void> _search({int nextPage = 1, bool submit = false}) async {
     if (loading || selecting || configuring) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     final request = ++generation;
     final requestedQuery = submit ? query.text.trim() : submitted;
     final requestedGenre = submit ? genre : submittedGenre;
@@ -556,328 +557,349 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
             ),
           ],
         ),
+        bottomNavigationBar: searched && collection == 'search'
+            ? SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Предыдущая страница',
+                        onPressed: loading || selecting || page <= 1
+                            ? null
+                            : () => _search(nextPage: page - 1),
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      Flexible(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Страница $page'),
+                            Text(
+                              '${visible.length} треков на странице',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Следующая страница',
+                        onPressed: loading || selecting || !hasMore
+                            ? null
+                            : () => _search(nextPage: page + 1),
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : null,
         body: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Text(
-                        provider.unavailableReason ?? 'Поиск и прослушивание онлайн. Локальная музыка остаётся в разделе «Музыка».',
-                      ),
-                      if (provider.unavailableReason != null)
-                        TextButton(
-                          onPressed: configuring ? null : _connect,
-                          child: const Text('Подключить Jamendo'),
+            child: NestedScrollView(
+              headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Text(
+                          provider.unavailableReason ?? 'Поиск и прослушивание онлайн. Локальная музыка остаётся в разделе «Музыка».',
                         ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: query,
-                        onSubmitted: (_) => _search(submit: true),
-                        maxLength: 200,
-                        decoration: const InputDecoration(
-                          labelText: 'Название, исполнитель или настроение',
-                          prefixIcon: Icon(Icons.search),
-                          counterText: '',
+                        if (provider.unavailableReason != null)
+                          TextButton(
+                            onPressed: configuring ? null : _connect,
+                            child: const Text('Подключить Jamendo'),
+                          ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: query,
+                          onSubmitted: (_) => _search(submit: true),
+                          maxLength: 200,
+                          decoration: const InputDecoration(
+                            labelText: 'Название, исполнитель или настроение',
+                            prefixIcon: Icon(Icons.search),
+                            counterText: '',
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: quickSearches.entries
-                              .map(
-                                (entry) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ActionChip(
-                                    key: ValueKey('jamendo-quick-${entry.key}'),
-                                    label: Text(entry.value),
-                                    onPressed:
-                                        loading ||
-                                            selecting ||
-                                            configuring ||
-                                            provider.unavailableReason != null
-                                        ? null
-                                        : () => _quickSearch(entry.key),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          DropdownButton<String>(
-                            key: const ValueKey('jamendo-genre'),
-                            value: genre,
-                            items: genres.entries
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: quickSearches.entries
                                 .map(
-                                  (e) => DropdownMenuItem(
-                                    value: e.key,
-                                    child: Text(e.value),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: loading || selecting
-                                ? null
-                                : (value) =>
-                                      setState(() => genre = value ?? ''),
-                          ),
-                          FilledButton.icon(
-                            onPressed:
-                                loading ||
-                                    selecting ||
-                                    configuring ||
-                                    provider.unavailableReason != null
-                                ? null
-                                : () => _search(submit: true),
-                            icon: const Icon(Icons.search),
-                            label: const Text('Найти'),
-                          ),
-                        ],
-                      ),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          DropdownButton<String>(
-                            key: const ValueKey('jamendo-sort'),
-                            value: sort,
-                            items: JamendoProvider.sorts.entries
-                                .map(
-                                  (e) => DropdownMenuItem(
-                                    value: e.key,
-                                    child: Text(e.value),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: loading || selecting
-                                ? null
-                                : (value) => setState(
-                                    () => sort = value ?? 'relevance',
-                                  ),
-                          ),
-                          FilterChip(
-                            label: const Text('Разные авторы'),
-                            tooltip: 'Показывать по одному треку каждого исполнителя',
-                            selected: diverseArtists,
-                            onSelected: loading || selecting
-                                ? null
-                                : (value) =>
-                                      setState(() => diverseArtists = value),
-                          ),
-                        ],
-                      ),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          FilterChip(
-                            label: const Text('CC BY / CC0'),
-                            selected: reusableOnly,
-                            onSelected: (value) =>
-                                setState(() => reusableOnly = value),
-                          ),
-                          FilterChip(
-                            label: const Text('Избранное'),
-                            selected: collection == 'favorites',
-                            onSelected: (v) => setState(
-                              () => collection = v ? 'favorites' : 'search',
-                            ),
-                          ),
-                          FilterChip(
-                            label: const Text('История'),
-                            selected: collection == 'history',
-                            onSelected: (v) => setState(
-                              () => collection = v ? 'history' : 'search',
-                            ),
-                          ),
-                          if (playing != null || previewLoading)
-                            TextButton.icon(
-                              onPressed: _stop,
-                              icon: const Icon(Icons.stop),
-                              label: const Text('Стоп'),
-                            ),
-                        ],
-                      ),
-                      if (error.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            error,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (loading || configuring || selecting)
-                  const LinearProgressIndicator(),
-                if (selecting)
-                  ListTile(
-                    title: Text(
-                      committing
-                          ? 'Добавление в проект…'
-                          : cancelled
-                          ? 'Отмена загрузки…'
-                          : 'Подготовка трека: ${(downloadedBytes / 1024).round()} КБ',
-                    ),
-                    trailing: TextButton(
-                      onPressed: committing || cancelled
-                          ? null
-                          : () => setState(() => cancelled = true),
-                      child: const Text('Отменить'),
-                    ),
-                  ),
-                Expanded(
-                  child: visible.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              searched
-                                  ? 'По этим условиям ничего не найдено. Измени запрос, фильтр или страницу.'
-                                  : 'Введи запрос и нажми «Найти». До этого приложение не обращается к Jamendo.',
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: visible.length,
-                          itemBuilder: (context, index) {
-                            final t = visible[index];
-                            return Card(
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 5,
-                              ),
-                              child: ExpansionTile(
-                                title: Text(t.title),
-                                trailing: IconButton(
-                                  tooltip: 'В избранное',
-                                  onPressed: () => _favorite(t),
-                                  icon: Icon(
-                                    favorites.containsKey(t.id)
-                                        ? Icons.favorite
-                                        : Icons.favorite_border,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  '${t.artist} • ${t.duration.inMinutes}:${(t.duration.inSeconds % 60).toString().padLeft(2, '0')} • ${t.license.name}',
-                                ),
-                                leading: IconButton(
-                                  tooltip: playing == t.id
-                                      ? 'Остановить'
-                                      : 'Прослушать',
-                                  onPressed: previewLoading || selecting
-                                      ? null
-                                      : () => _preview(t),
-                                  icon: Icon(
-                                    playing == t.id
-                                        ? Icons.stop_circle_outlined
-                                        : Icons.play_circle_outline,
-                                  ),
-                                ),
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        if (t.genre.isNotEmpty) Text(t.genre),
-                                        SelectableText(t.license.attribution),
-                                        const SizedBox(height: 8),
-                                        Text(_reason(t)),
-                                        const SizedBox(height: 8),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 8,
-                                          children: [
-                                            FilledButton.icon(
-                                              onPressed:
-                                                  selecting ||
-                                                      !provider
-                                                          .editingApproved ||
-                                                      !t.canDownload
-                                                  ? null
-                                                  : () => _use(t),
-                                              icon: const Icon(Icons.add),
-                                              label: const Text('В проект'),
-                                            ),
-                                            TextButton(
-                                              onPressed: () =>
-                                                  _copy(t.license.attribution),
-                                              child: const Text(
-                                                'Копировать авторство',
-                                              ),
-                                            ),
-                                            TextButton(
-                                              onPressed: () =>
-                                                  _copy(t.sourceUrl.toString()),
-                                              child: const Text(
-                                                'Копировать ссылку',
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                  (entry) => Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: ActionChip(
+                                      key: ValueKey(
+                                        'jamendo-quick-${entry.key}',
+                                      ),
+                                      label: Text(entry.value),
+                                      onPressed:
+                                          loading ||
+                                              selecting ||
+                                              configuring ||
+                                              provider.unavailableReason != null
+                                          ? null
+                                          : () => _quickSearch(entry.key),
                                     ),
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                ),
-                if (searched && collection == 'search')
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          tooltip: 'Предыдущая страница',
-                          onPressed: loading || selecting || page <= 1
-                              ? null
-                              : () => _search(nextPage: page - 1),
-                          icon: const Icon(Icons.chevron_left),
-                        ),
-                        Flexible(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text('Страница $page'),
-                              Text(
-                                '${visible.length} треков на странице',
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
+                                )
+                                .toList(),
                           ),
                         ),
-                        IconButton(
-                          tooltip: 'Следующая страница',
-                          onPressed: loading || selecting || !hasMore
-                              ? null
-                              : () => _search(nextPage: page + 1),
-                          icon: const Icon(Icons.chevron_right),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            DropdownButton<String>(
+                              key: const ValueKey('jamendo-genre'),
+                              value: genre,
+                              items: genres.entries
+                                  .map(
+                                    (e) => DropdownMenuItem(
+                                      value: e.key,
+                                      child: Text(e.value),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: loading || selecting
+                                  ? null
+                                  : (value) =>
+                                        setState(() => genre = value ?? ''),
+                            ),
+                            FilledButton.icon(
+                              onPressed:
+                                  loading ||
+                                      selecting ||
+                                      configuring ||
+                                      provider.unavailableReason != null
+                                  ? null
+                                  : () => _search(submit: true),
+                              icon: const Icon(Icons.search),
+                              label: const Text('Найти'),
+                            ),
+                          ],
                         ),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 200,
+                              child: DropdownButton<String>(
+                                key: const ValueKey('jamendo-sort'),
+                                isExpanded: true,
+                                value: sort,
+                                items: JamendoProvider.sorts.entries
+                                    .map(
+                                      (e) => DropdownMenuItem(
+                                        value: e.key,
+                                        child: Text(
+                                          e.value,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: loading || selecting
+                                    ? null
+                                    : (value) => setState(
+                                        () => sort = value ?? 'relevance',
+                                      ),
+                              ),
+                            ),
+                            FilterChip(
+                              label: const Text('Разные авторы'),
+                              tooltip: 'Показывать по одному треку каждого исполнителя',
+                              selected: diverseArtists,
+                              onSelected: loading || selecting
+                                  ? null
+                                  : (value) =>
+                                        setState(() => diverseArtists = value),
+                            ),
+                          ],
+                        ),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            FilterChip(
+                              label: const Text('CC BY / CC0'),
+                              selected: reusableOnly,
+                              onSelected: (value) =>
+                                  setState(() => reusableOnly = value),
+                            ),
+                            FilterChip(
+                              label: const Text('Избранное'),
+                              selected: collection == 'favorites',
+                              onSelected: (v) => setState(
+                                () => collection = v ? 'favorites' : 'search',
+                              ),
+                            ),
+                            FilterChip(
+                              label: const Text('История'),
+                              selected: collection == 'history',
+                              onSelected: (v) => setState(
+                                () => collection = v ? 'history' : 'search',
+                              ),
+                            ),
+                            if (playing != null || previewLoading)
+                              TextButton.icon(
+                                onPressed: _stop,
+                                icon: const Icon(Icons.stop),
+                                label: const Text('Стоп'),
+                              ),
+                          ],
+                        ),
+                        if (error.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              error,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
+                ),
               ],
+              body: Column(
+                children: [
+                  if (loading || configuring || selecting)
+                    const LinearProgressIndicator(),
+                  if (selecting)
+                    ListTile(
+                      title: Text(
+                        committing
+                            ? 'Добавление в проект…'
+                            : cancelled
+                            ? 'Отмена загрузки…'
+                            : 'Подготовка трека: ${(downloadedBytes / 1024).round()} КБ',
+                      ),
+                      trailing: TextButton(
+                        onPressed: committing || cancelled
+                            ? null
+                            : () => setState(() => cancelled = true),
+                        child: const Text('Отменить'),
+                      ),
+                    ),
+                  Expanded(
+                    child: visible.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(
+                                searched
+                                    ? 'Ничего не найдено. Повтори поиск или измени запрос, фильтр или страницу.'
+                                    : 'Введи запрос и нажми «Найти». До этого приложение не обращается к Jamendo.',
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: visible.length,
+                            itemBuilder: (context, index) {
+                              final t = visible[index];
+                              return Card(
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 5,
+                                ),
+                                child: ExpansionTile(
+                                  title: Text(t.title),
+                                  trailing: IconButton(
+                                    tooltip: 'В избранное',
+                                    onPressed: () => _favorite(t),
+                                    icon: Icon(
+                                      favorites.containsKey(t.id)
+                                          ? Icons.favorite
+                                          : Icons.favorite_border,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    '${t.artist} • ${t.duration.inMinutes}:${(t.duration.inSeconds % 60).toString().padLeft(2, '0')} • ${t.license.name}',
+                                  ),
+                                  leading: IconButton(
+                                    tooltip: playing == t.id
+                                        ? 'Остановить'
+                                        : 'Прослушать',
+                                    onPressed: previewLoading || selecting
+                                        ? null
+                                        : () => _preview(t),
+                                    icon: Icon(
+                                      playing == t.id
+                                          ? Icons.stop_circle_outlined
+                                          : Icons.play_circle_outline,
+                                    ),
+                                  ),
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          if (t.genre.isNotEmpty) Text(t.genre),
+                                          SelectableText(t.license.attribution),
+                                          const SizedBox(height: 8),
+                                          Text(_reason(t)),
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              FilledButton.icon(
+                                                onPressed:
+                                                    selecting ||
+                                                        !provider
+                                                            .editingApproved ||
+                                                        !t.canDownload
+                                                    ? null
+                                                    : () => _use(t),
+                                                icon: const Icon(Icons.add),
+                                                label: const Text('В проект'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () => _copy(
+                                                  t.license.attribution,
+                                                ),
+                                                child: const Text(
+                                                  'Копировать авторство',
+                                                ),
+                                              ),
+                                              TextButton(
+                                                onPressed: () => _copy(
+                                                  t.sourceUrl.toString(),
+                                                ),
+                                                child: const Text(
+                                                  'Копировать ссылку',
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

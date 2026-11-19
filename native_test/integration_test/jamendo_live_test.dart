@@ -87,21 +87,36 @@ void main() {
       await tester.tap(find.text(result.tracks.first.title));
       await settle();
       await capture('JAMENDO_DESKTOP.png');
-      await tester.tap(find.byTooltip('Прослушать').first);
       var heard = false;
-      for (var i = 0; i < 60 && !heard; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 500)),
-        );
-        await tester.pump(const Duration(milliseconds: 80));
-        heard = find.byTooltip('Остановить').evaluate().isNotEmpty;
+      // A live catalogue can transiently omit fresh metadata. Retry only that
+      // explicit service error; decoder/transport failures still fail this test.
+      for (var attempt = 0; attempt < 3 && !heard; attempt++) {
+        await tester.tap(find.byTooltip('Прослушать').first);
+        for (var i = 0; i < 60 && !heard; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 500)),
+          );
+          await tester.pump(const Duration(milliseconds: 80));
+          heard = find.byTooltip('Остановить').evaluate().isNotEmpty;
+          if (find
+              .textContaining('Jamendo не вернул сведения')
+              .evaluate()
+              .isNotEmpty)
+            break;
+        }
+        if (!heard &&
+            find
+                .textContaining('Jamendo не вернул сведения')
+                .evaluate()
+                .isEmpty)
+          break;
       }
       expect(
         heard,
         true,
         reason:
             'Production relay/player must reach a decoded positive audio position. '
-            '${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data ?? '').where((s) => s.contains('Не удалось') || s.contains('не поддерживает') || s.contains('недоступен')).join('; ')}',
+            '${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data ?? '').where((s) => s.contains('Не удалось') || s.contains('не поддерживает') || s.contains('не вернул сведения')).join('; ')}',
       );
       await tester.tap(find.byTooltip('Остановить').first);
       await settle();
