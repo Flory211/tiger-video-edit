@@ -1,6 +1,6 @@
 #define AppName "Tiger Video Edit"
 #ifndef AppVersion
-#define AppVersion "3.0.0"
+#define AppVersion "3.0.1"
 #endif
 [Setup]
 AppId={{F532F8DE-68FC-47B4-86C0-B22BDA909622}

@@ -136,6 +136,11 @@ class JamendoProvider implements OnlineMusicProvider {
   final Stream<List<int>> Function(Uri)? audioStream;
   final _cache = <String, (DateTime, JamendoPage)>{};
   static const pageSize = 20;
+  static const sorts = {
+    'relevance': 'По умолчанию',
+    'popularity_month': 'Популярное за месяц',
+    'releasedate_desc': 'Сначала новые',
+  };
   JamendoProvider({
     required String clientId,
     this.editingApproved = false,
@@ -313,13 +318,36 @@ class JamendoProvider implements OnlineMusicProvider {
     String query, {
     String genre = '',
     int page = 1,
+    String sort = 'relevance',
+    bool diverseArtists = false,
   }) async {
     if (page < 1 || page > 50) throw ArgumentError.value(page, 'page');
+    if (!sorts.containsKey(sort)) throw ArgumentError.value(sort, 'sort');
     final text = query.trim();
     if (text.length > 200 || genre.length > 40) {
       throw const JamendoException('Слишком длинный поисковый запрос.');
     }
-    final key = jsonEncode([text, genre, page]);
+    // Jamendo's general search can miss "phonk". Match this keyword in
+    // titles and combine it with the requested subtype instead of a broad tag.
+    final (searchText, titleText) = switch (text.toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    )) {
+      'phonk' || 'фонк' => (null, 'phonk'),
+      'drift phonk' || 'дрифт фонк' || 'дрифт-фонк' => ('drift', 'phonk'),
+      'brazilian phonk' || 'бразильский фонк' => ('brazilian', 'phonk'),
+      'brazilian funk' || 'бразильский фанк' => ('brazilian funk', null),
+      'montagem' || 'монтажем' => (null, 'montagem'),
+      _ => (text.isEmpty ? null : text, null),
+    };
+    final key = jsonEncode([
+      searchText,
+      titleText,
+      genre,
+      page,
+      sort,
+      diverseArtists,
+    ]);
     final cached = _cache[key];
     if (cached != null &&
         DateTime.now().difference(cached.$1) < const Duration(minutes: 2)) {
@@ -331,9 +359,11 @@ class JamendoProvider implements OnlineMusicProvider {
       'include': 'licenses musicinfo',
       'audioformat': 'mp32',
       'type': 'single albumtrack',
-      'order': text.isEmpty ? 'popularity_total' : 'relevance',
-      if (text.isNotEmpty) 'search': text,
+      'order': text.isEmpty && sort == 'relevance' ? 'popularity_total' : sort,
+      'search': ?searchText,
+      'namesearch': ?titleText,
       if (genre.isNotEmpty) 'tags': genre,
+      if (diverseArtists) 'groupby': 'artist_id',
     });
     final rows = json['results'] as List;
     final tracks = <OnlineMusicTrack>[];

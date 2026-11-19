@@ -49,6 +49,8 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
       configuring = true;
   int page = 1, generation = 0, downloadedBytes = 0;
   String genre = '', submitted = '', submittedGenre = '', error = '';
+  String sort = 'relevance', submittedSort = 'relevance';
+  bool diverseArtists = false, submittedDiverseArtists = false;
   String? playing;
   Player? player;
   JamendoPreview? relay;
@@ -72,6 +74,13 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
     'jazz': 'Джаз',
     'soundtrack': 'Саундтрек',
     'relaxation': 'Спокойная музыка',
+  };
+  static const quickSearches = {
+    'phonk': 'Фонк',
+    'brazilian funk': 'Brazilian funk',
+    'brazilian phonk': 'Brazilian phonk',
+    'drift phonk': 'Drift phonk',
+    'montagem': 'Montagem',
   };
 
   @override
@@ -244,11 +253,24 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
     }
   }
 
+  Future<void> _quickSearch(String text) async {
+    query.text = text;
+    setState(() {
+      genre = '';
+      reusableOnly = false;
+      sort = 'relevance';
+      diverseArtists = false;
+    });
+    await _search(submit: true);
+  }
+
   Future<void> _search({int nextPage = 1, bool submit = false}) async {
     if (loading || selecting || configuring) return;
     final request = ++generation;
     final requestedQuery = submit ? query.text.trim() : submitted;
     final requestedGenre = submit ? genre : submittedGenre;
+    final requestedSort = submit ? sort : submittedSort;
+    final requestedDiverse = submit ? diverseArtists : submittedDiverseArtists;
     collection = 'search';
     setState(() {
       loading = true;
@@ -260,6 +282,8 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
         requestedQuery,
         genre: requestedGenre,
         page: nextPage,
+        sort: requestedSort,
+        diverseArtists: requestedDiverse,
       );
       if (!mounted || request != generation) return;
       setState(() {
@@ -268,6 +292,8 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
         page = nextPage;
         submitted = requestedQuery;
         submittedGenre = requestedGenre;
+        submittedSort = requestedSort;
+        submittedDiverseArtists = requestedDiverse;
         searched = true;
       });
     } catch (e) {
@@ -560,12 +586,37 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: quickSearches.entries
+                              .map(
+                                (entry) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ActionChip(
+                                    key: ValueKey('jamendo-quick-${entry.key}'),
+                                    label: Text(entry.value),
+                                    onPressed:
+                                        loading ||
+                                            selecting ||
+                                            configuring ||
+                                            provider.unavailableReason != null
+                                        ? null
+                                        : () => _quickSearch(entry.key),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Wrap(
                         spacing: 12,
                         runSpacing: 8,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           DropdownButton<String>(
+                            key: const ValueKey('jamendo-genre'),
                             value: genre,
                             items: genres.entries
                                 .map(
@@ -591,6 +642,46 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
                             icon: const Icon(Icons.search),
                             label: const Text('Найти'),
                           ),
+                        ],
+                      ),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          DropdownButton<String>(
+                            key: const ValueKey('jamendo-sort'),
+                            value: sort,
+                            items: JamendoProvider.sorts.entries
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e.key,
+                                    child: Text(e.value),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: loading || selecting
+                                ? null
+                                : (value) => setState(
+                                    () => sort = value ?? 'relevance',
+                                  ),
+                          ),
+                          FilterChip(
+                            label: const Text('Разные авторы'),
+                            tooltip: 'Показывать по одному треку каждого исполнителя',
+                            selected: diverseArtists,
+                            onSelected: loading || selecting
+                                ? null
+                                : (value) =>
+                                      setState(() => diverseArtists = value),
+                          ),
+                        ],
+                      ),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
                           FilterChip(
                             label: const Text('CC BY / CC0'),
                             selected: reusableOnly,
@@ -763,7 +854,19 @@ class _JamendoMusicPageState extends State<JamendoMusicPage> {
                               : () => _search(nextPage: page - 1),
                           icon: const Icon(Icons.chevron_left),
                         ),
-                        Text('Страница $page'),
+                        Flexible(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('Страница $page'),
+                              Text(
+                                '${visible.length} треков на странице',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
                         IconButton(
                           tooltip: 'Следующая страница',
                           onPressed: loading || selecting || !hasMore

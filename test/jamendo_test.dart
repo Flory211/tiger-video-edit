@@ -23,6 +23,76 @@ Map<String, dynamic> row({String license = 'by', bool download = true}) => {
 };
 
 void main() {
+  test(
+    'phonk searches use title matching and focused English/Russian aliases',
+    () async {
+      final requests = <Map<String, String>>[];
+      final p = JamendoProvider(
+        clientId: 'fixture-id',
+        getJson: (params) async {
+          requests.add(params);
+          return {
+            'headers': {'status': 'success'},
+            'results': [row()],
+          };
+        },
+      );
+      await p.searchPage('фонк');
+      expect(requests.last['namesearch'], 'phonk');
+      expect(requests.last.containsKey('search'), false);
+      await p.searchPage('Drift Phonk', page: 2);
+      expect(requests.last['namesearch'], 'phonk');
+      expect(requests.last['search'], 'drift');
+      expect(requests.last['offset'], '20');
+      await p.searchPage('бразильский фонк');
+      expect(requests.last['namesearch'], 'phonk');
+      expect(requests.last['search'], 'brazilian');
+      await p.searchPage('бразильский фанк');
+      expect(requests.last['search'], 'brazilian funk');
+      await p.searchPage('монтажем');
+      expect(requests.last['namesearch'], 'montagem');
+      await p.searchPage('Artist & Song');
+      expect(requests.last['search'], 'Artist & Song');
+      expect(requests.last.containsKey('namesearch'), false);
+    },
+  );
+  test(
+    'discovery sort and artist grouping are validated and independently cached',
+    () async {
+      final requests = <Map<String, String>>[];
+      final p = JamendoProvider(
+        clientId: 'fixture-id',
+        getJson: (params) async {
+          requests.add(params);
+          return {
+            'headers': {'status': 'success'},
+            'results': [row()],
+          };
+        },
+      );
+      await p.searchPage(
+        'phonk',
+        sort: 'releasedate_desc',
+        diverseArtists: true,
+      );
+      expect(requests.single['order'], 'releasedate_desc');
+      expect(requests.single['groupby'], 'artist_id');
+      await p.searchPage(
+        'phonk',
+        sort: 'releasedate_desc',
+        diverseArtists: true,
+      );
+      expect(requests.length, 1);
+      await p.searchPage('phonk', sort: 'popularity_month');
+      expect(requests.length, 2);
+      expect(requests.last.containsKey('groupby'), false);
+      await expectLater(
+        p.searchPage('x', sort: 'unsupported'),
+        throwsArgumentError,
+      );
+      expect(requests.length, 2);
+    },
+  );
   test('relay close handles an upstream cancellation failure', () async {
     late StreamController<List<int>> upstream;
     upstream = StreamController<List<int>>(

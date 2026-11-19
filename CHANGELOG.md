@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.1 — music discovery
+
+- Phonk, Drift phonk, Brazilian phonk, Brazilian funk and Montagem quick searches, including Russian aliases. Focused phonk requests use title matching because the service's broad search can miss the keyword.
+- Newest/monthly-popularity sorting, optional one-track-per-artist discovery and visible per-page counts. Paging retains submitted settings; quick searches clear unrelated genre/licence filters. No new service or offline audio catalogue; editing permission gate remains unchanged.
+- Build 3006 distinguishes these candidates from 3.0.0 builds. Public binary Releases remain separate from source publication.
+
 ## 3.0.0 — in development
 
 - Build 3005 adds real Jamendo search/genres/pagination, stream preview, metadata-only favorites/history, local connection settings and licence/source/attribution display. No Client Secret or embedded public source credential. Gated editing preparation rechecks rights, stages/cancels downloads and passes attribution into .tve/export UI; Jamendo editing/export application permission remains unconfirmed and disabled.

@@ -29,12 +29,7 @@ void main() {
       () => Directory.systemTemp.createTemp('tiger-jamendo-live-'),
     ))!;
     final provider = JamendoProvider(clientId: clientId);
-    var search = 'piano';
-    var result = (await tester.runAsync(() => provider.searchPage(search)))!;
-    if (result.tracks.isEmpty) {
-      search = '';
-      result = (await tester.runAsync(() => provider.searchPage(search)))!;
-    }
+    final result = (await tester.runAsync(() => provider.searchPage('phonk')))!;
     expect(result.tracks, isNotEmpty);
     expect(result.tracks.first.previewUrl?.scheme, 'https');
     final key = GlobalKey();
@@ -86,8 +81,7 @@ void main() {
 
     try {
       await settle();
-      await tester.enterText(find.byType(TextField), search);
-      await tester.tap(find.text('Найти'));
+      await tester.tap(find.byKey(const ValueKey('jamendo-quick-phonk')));
       await settle();
       expect(find.text(result.tracks.first.title), findsOneWidget);
       await tester.tap(find.text(result.tracks.first.title));

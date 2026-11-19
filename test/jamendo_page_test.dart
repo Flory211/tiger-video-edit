@@ -53,6 +53,68 @@ class _PreviewPlayer extends Fake implements Player {
 
 void main() {
   testWidgets(
+    'phone phonk shortcut clears unrelated filters and exposes sorting',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final dir = Directory.systemTemp.createTempSync('tiger-phonk-ui-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final requests = <Map<String, String>>[];
+      final provider = JamendoProvider(
+        clientId: 'fixture-id',
+        getJson: (params) async {
+          requests.add(params);
+          return {
+            'headers': {'status': 'success'},
+            'results': [row()],
+          };
+        },
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: JamendoMusicPage(
+            provider: provider,
+            configFile: File('${dir.path}/config.json'),
+            workingDirectory: dir,
+            onUse: (_) async {},
+          ),
+        ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
+      await tester.pumpAndSettle();
+      expect(requests, isEmpty);
+      await tester.tap(find.text('CC BY / CC0'));
+      await tester.tap(find.byKey(const ValueKey('jamendo-genre')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Классика').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('jamendo-quick-phonk')));
+      await tester.pumpAndSettle();
+      expect(requests.single['namesearch'], 'phonk');
+      expect(requests.single.containsKey('tags'), false);
+      expect(
+        tester
+            .widget<FilterChip>(find.widgetWithText(FilterChip, 'CC BY / CC0'))
+            .selected,
+        false,
+      );
+      expect(find.text('Piano'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('jamendo-sort')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Сначала новые').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Разные авторы'));
+      await tester.tap(find.text('Найти'));
+      await tester.pumpAndSettle();
+      expect(requests.last['order'], 'releasedate_desc');
+      expect(requests.last['groupby'], 'artist_id');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
     'Back cancels pending import before the exit animation finishes',
     (tester) async {
       final dir = Directory.systemTemp.createTempSync('tiger-jamendo-back-');
@@ -210,9 +272,11 @@ void main() {
     (tester) async {
       final dir = Directory.systemTemp.createTempSync('tiger-jamendo-pages-');
       addTearDown(() => dir.deleteSync(recursive: true));
+      final requests = <Map<String, String>>[];
       final provider = JamendoProvider(
         clientId: 'fixture-id',
         getJson: (params) async {
+          requests.add(params);
           if (params['search'] == 'bad') {
             throw const JamendoException('Поиск не выполнен');
           }
@@ -250,9 +314,16 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Страница 2'), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'ambient');
+      await tester.tap(find.byKey(const ValueKey('jamendo-sort')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Сначала новые').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Разные авторы'));
       await tester.tap(find.byTooltip('Предыдущая страница'));
       await tester.pumpAndSettle();
       expect(find.text('piano-0-0'), findsOneWidget);
+      expect(requests.last['order'], 'relevance');
+      expect(requests.last.containsKey('groupby'), false);
       await tester.tap(find.byTooltip('Следующая страница'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'bad');
