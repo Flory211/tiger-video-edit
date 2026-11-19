@@ -1,4 +1,16 @@
-# Tiger Video Edit 3.0.0+3005 — Jamendo preview
+# Tiger Video Edit 3.0.1+3006 — music discovery
+
+Update 2026-11-19: added phonk/Drift phonk/Brazilian phonk/Brazilian funk/Montagem quick searches, Russian phonk aliases, newest/monthly-popularity ordering, optional one-track-per-artist browsing and clear per-page counts. Focused phonk requests use title matching because general Jamendo search can miss the keyword. Brazilian funk remains a broad keyword search, not a verified genre label. Empty responses are not cached, so an explicit retry reaches the service again. Source/runtime checkpoint: `be3f4fa`.
+
+Final local checks: **141/141 root tests passed, analyzer clean, real Windows Jamendo UI playback passed**. The native test uses the actual Phonk shortcut, fresh metadata, production relay/MP3 decoder, positive playback position and Stop; desktop/phone captures updated. Keyboard/short-phone/landscape overflow was reproduced and fixed with a scrollable header, constrained sort field and pagination in SafeArea. Independent review accepted these fixes without remaining P1/P2 findings. Live service probes also returned 20 monthly-popular phonk tracks from 20 different artists and 12 Brazilian phonk matches; counts fluctuate and do not certify genre/licence suitability.
+
+Candidates are built separately in ignored `dist/music-discovery/`. Installed applications/projects are untouched. Jamendo editing/export permission remains disabled; no public binary Release or Android device playback acceptance is claimed. Earlier results below describe previous checkpoints.
+
+Local candidates completed and exact artifact-set SHA256 manifest verified: Windows Setup **112,513,165 bytes**, SHA256 `edbcc4540fae577a63773870a6c15918bbbdbcdef14c8db51a8bc09f2bf2513a`; ARM64 TEST-debug APK **93,588,185 bytes**, SHA256 `1c169345fef1aa59bcfd93208293159c325562b06ca738b93d486caf7c4573bc`. APK label/version (3.0.1/3006), ZIP/ABI contents and v2 signing verified. Both private candidates use the ignored local Jamendo configuration.
+
+Windows CI [44524397808](https://github.com/Flory211/tiger-video-edit/actions/runs/44524397808) passed at `be3f4fa`, with 141 passed tests/clean analysis; downloaded artifact manifest verified. Android CI [44524404726](https://github.com/Flory211/tiger-video-edit/actions/runs/44524404726) also passed 141 tests/analysis but failed APK plugin resolution (Kotlin libraries searched only through the Plugin Portal). An init script now adds official Maven Central/Google/plugin repositories for included builds; local Gradle `help` with this script passed. Other Android attempts timed out fetching Ubuntu packages; fallback mirrors are retained. **Final Android CI packaging is not yet verified green**; local APK success and Windows playback do not imply physical Android acceptance.
+
+## Previous 3.0.0+3005 Jamendo checkpoint
 
 Update 2026-11-18: Jamendo online search, genres, pagination, listening, metadata-only favorites/history, local Client ID settings and licence/source/attribution display are implemented. The editing/export path is prepared but disabled until documented Jamendo permission for the application scenario. No offline audio catalogue or Client Secret is used. Guide: [docs/JAMENDO_GUIDE_RU.md](docs/JAMENDO_GUIDE_RU.md).
 

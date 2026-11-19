@@ -1,5 +1,13 @@
 # CI and release operations
 
+## Music discovery 3.0.1 / build 3006 — 2026-11-19
+
+Runtime source `be3f4fa` passed 141 local tests, clean analysis and the real Windows Phonk search/playback/Stop test; phone keyboard and landscape regressions also pass. Independent review accepted the scrollable controls and fixed pagination. Windows [run 44524397808](https://github.com/Flory211/tiger-video-edit/actions/runs/44524397808) passed with 141 tests/clean analysis and produced an installer. Its downloaded artifact manifest verified: Setup 111,378,136 bytes, SHA256 `d66c202f07f9d363b07d9a94d4ca66b61c715be19298d86a3a3490b4c9420daa`.
+
+Android [run 44524404726](https://github.com/Flory211/tiger-video-edit/actions/runs/44524404726) passed 141 tests and analysis, then could not resolve Kotlin plugin dependencies through the Plugin Portal. CI now installs `tools/gradle-plugin-repositories.init.gradle`, which adds official Maven Central/Google/plugin repositories before settings, including Flutter's included build. Local Gradle configuration with this init script succeeded. [Gradle documents the distinction between plugin markers and Maven Central libraries](https://plugins.gradle.org/docs/mirroring).
+
+Other attempts timed out in APT before app checks. The runner's original mirror list is now preserved after the official Ubuntu archive, with bounded timeouts and signature verification unchanged; [APT documents automatic fallback](https://manpages.debian.org/bookworm/apt/apt-transport-mirror.1.en.html). Android CI packaging remains unverified after these fixes. A local 3.0.1/3006 ARM64 TEST-debug APK did build and pass ZIP/ABI/version/v2-signature verification; private candidates and exact hashes are recorded in DEVELOPMENT_STATUS.md and ignored `dist/music-discovery/BUILD_INFO.json`. No binary Release or device runtime acceptance is implied.
+
 ## Jamendo build 3005 — 2026-11-18
 
 Final [Windows CI 44279901496](https://github.com/Flory211/tiger-video-edit/actions/runs/44279901496) passed at `736e004`; final [Android CI 44281803370](https://github.com/Flory211/tiger-video-edit/actions/runs/44281803370) passed at `b7e2381`. The latter changes only CI/documentation; application and test sources are identical. Both runners recorded **136 passed tests** and clean analysis. Both artifact sets were downloaded and their checksum manifests verified locally. Android CI additionally verified APK ZIP/ARM64-only contents and APK v2 signing.

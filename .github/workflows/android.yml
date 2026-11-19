@@ -82,6 +82,8 @@ jobs:
       - name: Build and verify ARM64 APK
         run: |
           set -euo pipefail
+          mkdir -p "$HOME/.gradle/init.d"
+          cp tools/gradle-plugin-repositories.init.gradle "$HOME/.gradle/init.d/tve-plugin-repositories.gradle"
           mkdir -p dist
           version=$(sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' pubspec.yaml)
           if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" && -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then

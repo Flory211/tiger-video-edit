@@ -1,0 +1,9 @@
+// Apply to included builds too: Flutter's Gradle plugin needs Kotlin libraries
+// from Maven Central, not only plugin markers from the Gradle Plugin Portal.
+gradle.beforeSettings { settings ->
+    settings.pluginManagement.repositories {
+        mavenCentral()
+        google()
+        gradlePluginPortal()
+    }
+}
