@@ -18,6 +18,8 @@ The owner authorized public Windows updates to `Flory211/tiger-video-edit` on
 - The 3.0.1 Windows update package reuses the compatible 3.0.0 native runtime.
   Check prerequisites and refuse unsupported installations. If Flutter, plugins,
   native dependencies or asset paths change, review the update format again.
+  For each later release, update and test the accepted previous-version list;
+  do not publish a package that rejects the version users are updating from.
 - Keep Android production-signing/device requirements separate. A TEST-debug APK
   must not be offered as a stable automatic Android update or block Windows-only
   publication. Do not invent approval records or claim unrun checks passed.

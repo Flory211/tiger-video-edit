@@ -17,6 +17,15 @@ and libmpv runtimes. The original full-runtime draft is replaced before publishi
 its separate complete native source/notices review is not claimed resolved. Source
 scope and reproducible inputs: docs/WINDOWS_UPDATE_SOURCES.md.
 
+Final 3.0.1 application-update build source: `5254cd5`. Four release-tool tests
+passed. The final installer passed actual isolated tests for absent base, locked
+runner/AOT, locked later ICU asset, wrong engine, full restoration after a forced
+completion failure, and valid 3005 → 3006 update. All other file hashes remained
+unchanged. Every replacement file is verified after copying. Public builds always
+compile from a clean snapshot; stale-build packaging is not supported. Release
+format uses `Windows-x64-Update-Setup.exe` and SHA256SUMS, compatible with 3.0.0's
+existing updater. The actual installed 3005 program was not replaced during tests.
+
 ## Public source publication — 2026-11-18
 
 Official GitHub CLI browser authentication completed as `Flory211`. The approved public repository https://github.com/Flory211/tiger-video-edit was created, with `main` as the default branch. Both `main` and `feature/tiger-3.0` received source commit `e55c2b7505bd73a50a123dc1c6a8ea2dda214a7a` and its preserved history; remote ref verification matched the local commit. A fresh all-reachable-history secret scan passed before upload. Ignored binaries, imported media, tool caches and credentials were not uploaded. Existing GPLv3 is retained as approved.
