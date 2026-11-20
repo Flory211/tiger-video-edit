@@ -28,6 +28,11 @@ source used for compilation and the packaging/source snapshot separately when ne
 Rebuild with `flutter pub get`, then run `tools/build-windows-update.ps1` with
 `-Python` pointing to Python and `-BaseDirectory` pointing to a supported baseline.
 The validator enforces the supported base file paths and rejects native payloads.
+Every public package requires a fresh public compilation from a clean source
+snapshot; the builder cannot package stale private output with a skip-build flag.
+The installer checks every replacement path before writing, backs up the application
+files and restores them after an interrupted installation. Existing projects and
+native libraries are outside that replacement/backup list.
 Run `tools/test-windows-update.ps1` against a separate copy to verify installation.
 
 ## Retained runtime references
