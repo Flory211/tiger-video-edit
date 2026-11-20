@@ -1,5 +1,22 @@
 # Publication review — 2026-10-31
 
+## Standing update publication authorization — 2026-11-20
+
+The owner explicitly approved public Windows updates through GitHub Releases and
+requested this as the standing workflow for future finished updates. Further routine
+publication confirmation is not needed. This supersedes the earlier source-only
+authorization for compatible verified Windows update packages. The instruction is
+recorded in AGENTS.md. No signing-key purchase, private Client ID disclosure, forced
+editor closure or promotion of an Android TEST-debug APK is authorized by this rule.
+
+The public 3.0.1 package is application-only (runner and data) and retains the
+compatible installed 3.0.0 runtimes. It refuses missing/unsupported bases, mismatched
+engines and locked application files. Four release-tool tests and isolated actual
+installer tests passed; a patched 3005 copy starts and loads its retained Flutter
+and libmpv runtimes. The original full-runtime draft is replaced before publishing;
+its separate complete native source/notices review is not claimed resolved. Source
+scope and reproducible inputs: docs/WINDOWS_UPDATE_SOURCES.md.
+
 ## Public source publication — 2026-11-18
 
 Official GitHub CLI browser authentication completed as `Flory211`. The approved public repository https://github.com/Flory211/tiger-video-edit was created, with `main` as the default branch. Both `main` and `feature/tiger-3.0` received source commit `e55c2b7505bd73a50a123dc1c6a8ea2dda214a7a` and its preserved history; remote ref verification matched the local commit. A fresh all-reachable-history secret scan passed before upload. Ignored binaries, imported media, tool caches and credentials were not uploaded. Existing GPLv3 is retained as approved.

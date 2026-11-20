@@ -4,6 +4,41 @@ from pathlib import Path
 
 
 class ReleaseToolsTest(unittest.TestCase):
+    def test_update_payload_excludes_native_runtimes_and_private_build_values(self):
+        import windows_update_payload as update
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ('tiger_video_edit.exe', 'data/app.so', 'data/icudtl.dat',
+                         'data/flutter_assets/NOTICES.Z'):
+                file = root / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(b'public application')
+            self.assertEqual(len(update.validate(root)), 4)
+            (root / 'libmpv-2.dll').write_bytes(b'native')
+            with self.assertRaises(ValueError):
+                update.validate(root)
+            (root / 'libmpv-2.dll').unlink()
+            (root / 'data/app.so').write_bytes(b'private-fixture-value')
+            with self.assertRaises(ValueError):
+                update.validate(root, blocked_values=['private-fixture-value'])
+
+    def test_update_payload_requires_existing_base_asset_paths(self):
+        import windows_update_payload as update
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'payload'
+            base = Path(folder) / 'base'
+            for name in ('tiger_video_edit.exe', 'data/app.so', 'data/icudtl.dat',
+                         'data/flutter_assets/NOTICES.Z'):
+                for directory in (root, base):
+                    file = directory / name
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    file.write_bytes(b'public application')
+            update.validate(root, base=base)
+            (root / 'data/new-asset').write_bytes(b'new')
+            with self.assertRaises(ValueError):
+                update.validate(root)
+            with self.assertRaises(ValueError):
+                update.validate(root, base=base)
     def test_manifest_detects_tampering_and_unsafe_paths(self):
         import release_integrity as integrity
         with tempfile.TemporaryDirectory() as folder:
