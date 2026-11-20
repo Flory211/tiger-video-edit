@@ -17,8 +17,7 @@ BASE_PATHS = {
 
 
 def validate(root, *, blocked_values=(), base=None):
-    required = {'tiger_video_edit.exe', 'data/app.so', 'data/icudtl.dat',
-                'data/flutter_assets/NOTICES.Z'}
+    required = BASE_PATHS
     result = {}
     for file in root.rglob('*'):
         if file.is_symlink():

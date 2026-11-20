@@ -8,12 +8,11 @@ class ReleaseToolsTest(unittest.TestCase):
         import windows_update_payload as update
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            for name in ('tiger_video_edit.exe', 'data/app.so', 'data/icudtl.dat',
-                         'data/flutter_assets/NOTICES.Z'):
+            for name in update.BASE_PATHS:
                 file = root / name
                 file.parent.mkdir(parents=True, exist_ok=True)
                 file.write_bytes(b'public application')
-            self.assertEqual(len(update.validate(root)), 4)
+            self.assertEqual(len(update.validate(root)), len(update.BASE_PATHS))
             (root / 'libmpv-2.dll').write_bytes(b'native')
             with self.assertRaises(ValueError):
                 update.validate(root)
@@ -27,8 +26,7 @@ class ReleaseToolsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / 'payload'
             base = Path(folder) / 'base'
-            for name in ('tiger_video_edit.exe', 'data/app.so', 'data/icudtl.dat',
-                         'data/flutter_assets/NOTICES.Z'):
+            for name in update.BASE_PATHS:
                 for directory in (root, base):
                     file = directory / name
                     file.parent.mkdir(parents=True, exist_ok=True)

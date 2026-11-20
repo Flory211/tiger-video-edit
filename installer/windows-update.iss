@@ -10,11 +10,8 @@
 #ifndef EngineSHA256
   #error EngineSHA256 is required
 #endif
-#ifndef RunnerSHA256
-  #error RunnerSHA256 is required
-#endif
-#ifndef AotSHA256
-  #error AotSHA256 is required
+#ifndef PayloadInfoFile
+  #error PayloadInfoFile is required
 #endif
 
 [Setup]
@@ -46,29 +43,17 @@ Source: "{#PayloadDir}\tiger_video_edit.exe"; DestDir: "{app}"; Flags: ignorever
 Source: "{#PayloadDir}\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Run]
-Filename: "{app}\tiger_video_edit.exe"; WorkingDir: "{app}"; Description: "Запустить Tiger Video Edit"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\tiger_video_edit.exe"; WorkingDir: "{app}"; Description: "Запустить Tiger Video Edit"; Flags: nowait postinstall skipifsilent; Check: CanRunUpdatedApp
 
 [Code]
 var
-  PayloadPaths: TArrayOfString;
+  PayloadPaths, PayloadHashes: TArrayOfString;
   Destination, BackupDir: String;
   BackupReady, Completed: Boolean;
 
 procedure InitializeWizard;
 begin
-  SetArrayLength(PayloadPaths, 12);
-  PayloadPaths[0] := 'tiger_video_edit.exe';
-  PayloadPaths[1] := 'data\app.so';
-  PayloadPaths[2] := 'data\icudtl.dat';
-  PayloadPaths[3] := 'data\flutter_assets\AssetManifest.bin';
-  PayloadPaths[4] := 'data\flutter_assets\FontManifest.json';
-  PayloadPaths[5] := 'data\flutter_assets\NativeAssetsManifest.json';
-  PayloadPaths[6] := 'data\flutter_assets\NOTICES.Z';
-  PayloadPaths[7] := 'data\flutter_assets\fonts\MaterialIcons-Regular.otf';
-  PayloadPaths[8] := 'data\flutter_assets\packages\cupertino_icons\assets\CupertinoIcons.ttf';
-  PayloadPaths[9] := 'data\flutter_assets\packages\media_kit\assets\web\hls1.4.10.js';
-  PayloadPaths[10] := 'data\flutter_assets\shaders\ink_sparkle.frag';
-  PayloadPaths[11] := 'data\flutter_assets\shaders\stretch_effect.frag';
+#include PayloadInfoFile
 end;
 
 function IsRollbackTest: Boolean;
@@ -80,7 +65,7 @@ end;
 procedure TestFailureAfterRunner;
 begin
   if IsRollbackTest then
-    RaiseException('Isolated rollback test: forced failure after runner replacement');
+    Log('Isolated rollback test: runner replaced; completion will be refused');
 end;
 
 function BackupOwned: Boolean;
@@ -97,6 +82,7 @@ begin
   { Delete only our 12 backup files and remove empty directories, never user files. }
   for I := 0 to GetArrayLength(PayloadPaths) - 1 do begin
     DeleteFile(BackupDir + '\' + PayloadPaths[I]);
+    if FileExists(BackupDir + '\' + PayloadPaths[I]) then Exit;
     Folder := ExtractFileDir(BackupDir + '\' + PayloadPaths[I]);
     while (Length(Folder) > Length(BackupDir)) and
           (Pos(BackupDir + '\', Folder + '\') = 1) do begin
@@ -105,6 +91,9 @@ begin
     end;
   end;
   DeleteFile(BackupDir + '\READY');
+  if FileExists(BackupDir + '\READY') then Exit;
+  DeleteFile(BackupDir + '\CLEANUP');
+  if FileExists(BackupDir + '\CLEANUP') then Exit;
   DeleteFile(BackupDir + '\OWNER');
   RemoveDir(BackupDir);
 end;
@@ -120,7 +109,8 @@ begin
     if not FileCopy(BackupDir + '\' + PayloadPaths[I], Destination + '\' + PayloadPaths[I], False) then Exit;
   Result := True;
   BackupReady := False;
-  ClearOwnedBackup;
+  Log('Previous application files restored after an incomplete update');
+  if SaveStringToFile(BackupDir + '\CLEANUP', 'files-valid', False) then ClearOwnedBackup;
 end;
 
 function SaveBackup: Boolean;
@@ -176,7 +166,8 @@ begin
   Result := 'Не удалось восстановить предыдущую попытку обновления. Закрой редактор и повтори. Резервные файлы сохранены: ' + BackupDir;
   if DirExists(BackupDir) then begin
     if not BackupOwned then Exit;
-    if FileExists(BackupDir + '\READY') then begin
+    if FileExists(BackupDir + '\CLEANUP') then ClearOwnedBackup
+    else if FileExists(BackupDir + '\READY') then begin
       if not GetVersionNumbersString(BackupDir + '\tiger_video_edit.exe', Version) then Exit;
       if (Version <> '3.0.0.3004') and (Version <> '3.0.0.3005') and
          (Version <> '{#AppVersion}.{#AppBuild}') then Exit;
@@ -206,13 +197,19 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var Key, InstalledLocation: String;
+var Key, InstalledLocation: String; I: Integer; Valid: Boolean;
 begin
   if CurStep <> ssPostInstall then Exit;
-  if IsRollbackTest then RaiseException('Isolated rollback test');
-  if (Lowercase(GetSHA256OfFile(Destination + '\tiger_video_edit.exe')) <> '{#RunnerSHA256}') or
-     (Lowercase(GetSHA256OfFile(Destination + '\data\app.so')) <> '{#AotSHA256}') then
+  Valid := not IsRollbackTest;
+  for I := 0 to GetArrayLength(PayloadPaths) - 1 do
+    if Lowercase(GetSHA256OfFile(Destination + '\' + PayloadPaths[I])) <> PayloadHashes[I] then Valid := False;
+  if not Valid then begin
+    RestoreBackup;
     RaiseException('Проверка установленных файлов не пройдена. Будет восстановлена предыдущая версия.');
+    Exit;
+  end;
+  if not SaveStringToFile(BackupDir + '\CLEANUP', 'files-valid', False) then
+    RaiseException('Не удалось завершить обновление. Будет восстановлена предыдущая версия.');
   Completed := True;
   ClearOwnedBackup;
   BackupReady := False;
@@ -222,6 +219,16 @@ begin
        (CompareText(RemoveBackslashUnlessRoot(InstalledLocation), RemoveBackslashUnlessRoot(Destination)) = 0) then
       RegWriteStringValue(HKCU, Key, 'DisplayVersion', '{#AppVersion}');
   end;
+end;
+
+function CanRunUpdatedApp: Boolean;
+begin
+  Result := Completed;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  if Completed then Result := 0 else Result := 1;
 end;
 
 procedure DeinitializeSetup;

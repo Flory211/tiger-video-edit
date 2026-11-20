@@ -28,9 +28,18 @@ if($BaseDirectory){$taskChecks+=@('--base',$BaseDirectory)}
 if($LASTEXITCODE){throw 'Unsafe update payload'}
 $taskEngine=(Get-FileHash -LiteralPath (Join-Path $taskRelease 'flutter_windows.dll')).Hash.ToLowerInvariant()
 if(!$InnoIscc){$InnoIscc=Join-Path $taskRoot '.tools/inno/ISCC.exe'}
-$taskRunnerHash=(Get-FileHash -LiteralPath (Join-Path $taskPayload 'tiger_video_edit.exe')).Hash.ToLowerInvariant()
-$taskAotHash=(Get-FileHash -LiteralPath (Join-Path $taskPayload 'data/app.so')).Hash.ToLowerInvariant()
-& $InnoIscc "/DAppVersion=$($taskVersion.Groups[1].Value)" "/DAppBuild=$($taskVersion.Groups[2].Value)" "/DPayloadDir=$taskPayload" "/DEngineSHA256=$taskEngine" "/DRunnerSHA256=$taskRunnerHash" "/DAotSHA256=$taskAotHash" "/O$taskOutput" (Join-Path $taskRoot 'installer/windows-update.iss')
+$taskManifest=Get-Content (Join-Path $taskOutput 'payload-manifest.json') -Raw | ConvertFrom-Json
+$taskEntries=@($taskManifest.PSObject.Properties)
+$taskInfo=@("SetArrayLength(PayloadPaths, $($taskEntries.Count));","SetArrayLength(PayloadHashes, $($taskEntries.Count));")
+for($taskIndex=0;$taskIndex -lt $taskEntries.Count;$taskIndex++){
+  $taskName=$taskEntries[$taskIndex].Name.Replace('/','\')
+  $taskHash=$taskEntries[$taskIndex].Value.sha256
+  $taskInfo+="PayloadPaths[$taskIndex] := '$taskName';"
+  $taskInfo+="PayloadHashes[$taskIndex] := '$taskHash';"
+}
+$taskInfoFile="$taskPayload.iss"
+[IO.File]::WriteAllLines($taskInfoFile,$taskInfo,[Text.UTF8Encoding]::new($false))
+& $InnoIscc "/DAppVersion=$($taskVersion.Groups[1].Value)" "/DAppBuild=$($taskVersion.Groups[2].Value)" "/DPayloadDir=$taskPayload" "/DPayloadInfoFile=$taskInfoFile" "/DEngineSHA256=$taskEngine" "/O$taskOutput" (Join-Path $taskRoot 'installer/windows-update.iss')
 if($LASTEXITCODE){throw 'Update installer compilation failed'}
 $taskBuild=[ordered]@{
   version=$taskVersion.Groups[1].Value; build=[int]$taskVersion.Groups[2].Value;
