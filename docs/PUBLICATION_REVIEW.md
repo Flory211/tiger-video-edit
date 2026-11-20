@@ -2,6 +2,15 @@
 
 ## Standing update publication authorization — 2026-11-20
 
+Published: https://github.com/Flory211/tiger-video-edit/releases/tag/v3.0.1 at
+2026-11-20 06:56:39 UTC, stable and public. Six assets include the application-only
+installer, application source archive, source references, payload manifest,
+provenance and SHA256SUMS. Installer: 5,135,313 bytes, SHA256
+`ef258cf5a56aadf3e466af44f92efffb98597a1c9a574949de7f548661e0f4cf`.
+The real anonymous UpdateService (no token/mock transport) found the update from
+3.0.0, downloaded and verified the public asset, then confirmed the refreshed
+installed-app cache offers 3.0.1. No installation over the user's editor was run.
+
 The owner explicitly approved public Windows updates through GitHub Releases and
 requested this as the standing workflow for future finished updates. Further routine
 publication confirmation is not needed. This supersedes the earlier source-only
